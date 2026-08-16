@@ -34,7 +34,14 @@ import {
   syncSubmission,
   validateContacts
 } from "../domain/alumni.js";
-import { buildExportWorkbook, buildImportTemplate, importAlumniWorkbook } from "../domain/excel.js";
+import {
+  buildExportWorkbook,
+  buildImportTemplate,
+  importAlumniWorkbook,
+  parseImportWorkbook,
+  recordImportJob,
+  writeImportRows
+} from "../domain/excel.js";
 import { generateSampleRows } from "../domain/sample-data.js";
 import { deleteAllPhotos } from "../domain/photos.js";
 import { getSettings, updateSettings } from "../domain/settings.js";
@@ -221,6 +228,64 @@ router.post("/import", requirePermission("alumni.import"), multipartBody({ maxFi
     targetType: "importJob",
     targetId: job.jobId,
     meta: { totalRows: job.totalRows, inserted: job.inserted, updated: job.updated, skipped: job.skipped }
+  });
+  res.json({ job });
+}));
+
+/* ---- chunked import: lets the console show a real progress bar ---- */
+
+/** Step 1 — parse and validate the file. Writes nothing. */
+router.post("/import/prepare", requirePermission("alumni.import"), multipartBody({ maxFiles: 1 }), route(async (req, res) => {
+  const file = req.files?.file;
+  if (!file?.buffer?.length) throw badRequest("ไม่พบไฟล์ Excel ที่อัปโหลด");
+  const parsed = await parseImportWorkbook({ buffer: file.buffer, filename: file.filename });
+  await audit(req, "alumni.import.prepare", {
+    targetType: "importJob",
+    targetId: parsed.jobId,
+    meta: { totalRows: parsed.totalRows, validRows: parsed.validRows, skipped: parsed.skipped }
+  });
+  res.json({ job: parsed });
+}));
+
+/** Step 2 — write one slice. Called repeatedly; each call reports its own counts. */
+router.post("/import/chunk", requirePermission("alumni.import"), route(async (req, res) => {
+  const entries = Array.isArray(req.body?.entries) ? req.body.entries : [];
+  if (!entries.length) throw badRequest("ไม่พบข้อมูลที่จะบันทึก");
+  if (entries.length > 1000) throw badRequest("ส่งข้อมูลได้ครั้งละไม่เกิน 1,000 แถว");
+  const result = await writeImportRows({
+    entries,
+    actor: req.user,
+    jobId: String(req.body?.jobId || "").slice(0, 64),
+    filename: String(req.body?.filename || "").slice(0, 200)
+  });
+  res.json(result);
+}));
+
+/** Step 3 — record the finished job so it shows in the import history. */
+router.post("/import/commit", requirePermission("alumni.import"), route(async (req, res) => {
+  const body = req.body || {};
+  const job = await recordImportJob({
+    jobId: String(body.jobId || "").slice(0, 64),
+    filename: String(body.filename || "").slice(0, 200),
+    headers: Array.isArray(body.headers) ? body.headers.slice(0, 50) : [],
+    dryRun: false,
+    startedAt: String(body.startedAt || new Date().toISOString()),
+    finishedAt: new Date().toISOString(),
+    status: body.status === "failed" ? "failed" : "completed",
+    uploadedBy: req.user.uid,
+    uploadedByUsername: req.user.username,
+    totalRows: Number(body.totalRows) || 0,
+    validRows: Number(body.validRows) || 0,
+    inserted: Number(body.inserted) || 0,
+    updated: Number(body.updated) || 0,
+    duplicateRows: Number(body.duplicateRows) || 0,
+    skipped: Number(body.skipped) || 0,
+    errors: Array.isArray(body.errors) ? body.errors.slice(0, 200) : []
+  });
+  await audit(req, "alumni.import", {
+    targetType: "importJob",
+    targetId: job.jobId,
+    meta: { totalRows: job.totalRows, inserted: job.inserted, updated: job.updated, skipped: job.skipped, status: job.status }
   });
   res.json({ job });
 }));

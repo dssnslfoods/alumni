@@ -58,7 +58,14 @@ export async function readWorkbookRows(buffer, filename = "") {
     if (isCsv) await workbook.csv.read(Readable.from(buffer));
     else await workbook.xlsx.load(buffer);
   } catch (error) {
-    throw badRequest(`อ่านไฟล์ไม่สำเร็จ กรุณาตรวจสอบว่าเป็นไฟล์ .xlsx หรือ .csv ที่ถูกต้อง (${error.message})`);
+    // ExcelJS surfaces low-level zip errors that mean nothing to an administrator.
+    const looksCorrupt = /zip|central directory|end of data/i.test(error.message || "");
+    throw badRequest(
+      looksCorrupt
+        ? "ไฟล์นี้ไม่ใช่ไฟล์ Excel ที่สมบูรณ์ หากบันทึกมาจากโปรแกรมอื่น ให้เปิดด้วย Excel หรือ Google Sheets แล้วบันทึกใหม่เป็น .xlsx"
+        : "อ่านไฟล์ไม่สำเร็จ กรุณาตรวจสอบว่าเป็นไฟล์ .xlsx หรือ .csv ที่ถูกต้องและไม่ได้ตั้งรหัสผ่านไว้",
+      { reason: error.message }
+    );
   }
 
   const worksheet = workbook.worksheets.find((sheet) => sheet.rowCount > 1) || workbook.worksheets[0];
@@ -132,15 +139,16 @@ export function mapRow(row) {
 }
 
 /**
- * Import an alumni master list. Existing records keep every field the alumnus
- * has already submitted; only the reference columns are overwritten.
+ * Read and validate a workbook without writing anything.
+ *
+ * Splitting parse from write is what lets the browser show a real progress
+ * bar: it gets the validated rows back, then feeds them to `writeImportRows`
+ * in slices and counts completed slices.
  */
-export async function importAlumniWorkbook({ buffer, filename, actor, dryRun = false }) {
-  const startedAt = new Date().toISOString();
+export async function parseImportWorkbook({ buffer, filename }) {
   const { headers, rows } = await readWorkbookRows(buffer, filename);
   if (!rows.length) throw badRequest("ไม่พบแถวข้อมูลในไฟล์");
 
-  const jobId = newId("imp");
   const mapped = rows.map(mapRow);
   const invalid = mapped.filter((item) => !item.ok);
   const valid = mapped.filter((item) => item.ok);
@@ -161,9 +169,55 @@ export async function importAlumniWorkbook({ buffer, filename, actor, dryRun = f
     byId.set(id, item);
   });
 
+  return {
+    jobId: newId("imp"),
+    filename,
+    headers,
+    totalRows: rows.length,
+    validRows: valid.length,
+    skipped: invalid.length,
+    duplicateRows: duplicates.length,
+    errors: invalid.slice(0, 200),
+    warnings: valid.filter((item) => item.warnings?.length).slice(0, 50).map((item) => ({ rowNumber: item.rowNumber, warnings: item.warnings })),
+    entries: [...byId.values()].map((item) => ({ rowNumber: item.rowNumber, value: item.value }))
+  };
+}
+
+/**
+ * Re-validate a row that arrived from the browser. The parsed rows make a
+ * round trip through the client so it can drive the progress bar, so nothing
+ * coming back is trusted — the same rules as the original parse are applied.
+ */
+export function validateImportValue(raw) {
+  const value = {
+    firstName: normalizeText(raw?.firstName),
+    lastName: normalizeText(raw?.lastName),
+    batch: parseBatch(raw?.batch),
+    studentId: onlyDigits(raw?.studentId),
+    idCardLast5: onlyDigits(raw?.idCardLast5).slice(-5),
+    title: normalizeText(raw?.title),
+    currentFirstName: normalizeText(raw?.currentFirstName),
+    currentLastName: normalizeText(raw?.currentLastName),
+    outreachEmail: normalizeText(raw?.outreachEmail).toLowerCase(),
+    outreachPhone: onlyDigits(raw?.outreachPhone),
+    note: normalizeText(raw?.note).slice(0, 300)
+  };
+  if (!value.firstName || !value.lastName || value.batch === null || value.idCardLast5.length !== 5) return null;
+  return value;
+}
+
+/** Upsert one slice of validated rows. Returns how many were new vs updated. */
+export async function writeImportRows({ entries, actor, jobId, filename }) {
+  const byId = new Map();
+  entries.forEach((entry) => {
+    const value = validateImportValue(entry?.value);
+    if (value) byId.set(alumniId(value), { rowNumber: entry.rowNumber, value });
+  });
+  if (!byId.size) return { inserted: 0, updated: 0, written: 0, rejected: entries.length };
+
   const existing = await getDocsByIds(ALUMNI, [...byId.keys()]);
   const now = new Date().toISOString();
-  const entries = [...byId.entries()].map(([id, item]) => {
+  const documents = [...byId.entries()].map(([id, item]) => {
     const previous = existing.get(id);
 
     // The "ชื่อปัจจุบัน" columns only seed records the alumnus has not filled in
@@ -190,10 +244,37 @@ export async function importAlumniWorkbook({ buffer, filename, actor, dryRun = f
     };
   });
 
-  const inserted = entries.filter((entry) => !existing.has(entry.id)).length;
-  const updated = entries.length - inserted;
+  await bulkSet(ALUMNI, documents, { merge: true });
+  const inserted = documents.filter((entry) => !existing.has(entry.id)).length;
+  return { inserted, updated: documents.length - inserted, written: documents.length, rejected: entries.length - byId.size };
+}
 
-  if (!dryRun) await bulkSet(ALUMNI, entries, { merge: true });
+export async function recordImportJob(job) {
+  await setDoc(IMPORT_JOBS, job.jobId, job);
+  return job;
+}
+
+/**
+ * Single-shot import: parse then write everything in one request.
+ * Used by scripts and the API; the console uses the chunked flow instead so it
+ * can show progress.
+ */
+export async function importAlumniWorkbook({ buffer, filename, actor, dryRun = false }) {
+  const startedAt = new Date().toISOString();
+  const parsed = await parseImportWorkbook({ buffer, filename });
+  const { jobId, headers, totalRows, validRows, skipped, duplicateRows, errors, entries } = parsed;
+
+  const written = dryRun
+    ? { inserted: 0, updated: 0 }
+    : await writeImportRows({ entries, actor, jobId, filename });
+
+  // A dry run still needs accurate insert/update counts, so look the ids up.
+  const counts = dryRun
+    ? await previewCounts(entries)
+    : written;
+
+  const inserted = counts.inserted;
+  const updated = counts.updated;
 
   const job = {
     jobId,
@@ -205,16 +286,29 @@ export async function importAlumniWorkbook({ buffer, filename, actor, dryRun = f
     status: "completed",
     uploadedBy: actor?.uid || "system",
     uploadedByUsername: actor?.username || "system",
-    totalRows: rows.length,
-    validRows: valid.length,
+    totalRows,
+    validRows,
     inserted,
     updated,
-    duplicateRows: duplicates.length,
-    skipped: invalid.length,
-    errors: invalid.slice(0, 200)
+    duplicateRows,
+    skipped,
+    errors
   };
-  if (!dryRun) await setDoc(IMPORT_JOBS, jobId, job);
+  if (!dryRun) await recordImportJob(job);
   return job;
+}
+
+/** Insert/update split for a dry run, without writing anything. */
+async function previewCounts(entries) {
+  const ids = entries.map((entry) => {
+    const value = validateImportValue(entry?.value);
+    return value ? alumniId(value) : "";
+  }).filter(Boolean);
+  const existing = await getDocsByIds(ALUMNI, ids);
+  const unique = new Set(ids);
+  let updated = 0;
+  unique.forEach((id) => { if (existing.has(id)) updated += 1; });
+  return { inserted: unique.size - updated, updated };
 }
 
 const EXPORT_COLUMNS = [

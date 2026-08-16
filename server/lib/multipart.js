@@ -28,7 +28,13 @@ export function parseMultipart(req, { maxFileBytes = config.maxUploadBytes, maxF
       return;
     }
 
-    const busboy = Busboy({ headers: req.headers, limits: { fileSize: maxFileBytes, files: maxFiles, fields: 50 } });
+    const busboy = Busboy({
+      headers: req.headers,
+      // Busboy defaults form-data parameters to latin1 per the old RFC, which
+      // turns a Thai filename into mojibake ("à¸„à¸±à¸§"). Browsers send UTF-8.
+      defParamCharset: "utf8",
+      limits: { fileSize: maxFileBytes, files: maxFiles, fields: 50 }
+    });
     const fields = {};
     const files = {};
     let pending = 0;

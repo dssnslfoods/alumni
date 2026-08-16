@@ -242,20 +242,92 @@ function ImportExport({ canReset }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [exportBatch, setExportBatch] = useState("");
+  const [progress, setProgress] = useState(null);
 
-  async function send(dryRun) {
+  const CHUNK_SIZE = 400;
+
+  function describeError(error) {
+    return [error.message, error.details?.headersFound ? `พบคอลัมน์ในไฟล์: ${error.details.headersFound.join(", ")}` : ""]
+      .filter(Boolean)
+      .join(" — ");
+  }
+
+  /** Parse and validate only — nothing is saved yet. */
+  async function check() {
     if (!file) return setMessage("กรุณาเลือกไฟล์ก่อน");
     setBusy(true);
     setMessage("");
+    setResult(null);
+    setProgress({ phase: "reading", percent: 0, done: 0, total: 0 });
     try {
       const body = new FormData();
       body.append("file", file);
-      if (dryRun) body.append("dryRun", "true");
-      const data = await api("/api/admin/import", { method: "POST", body });
-      if (dryRun) { setPreview(data.job); setResult(null); }
-      else { setResult(data.job); setPreview(null); }
+      const data = await api("/api/admin/import/prepare", { method: "POST", body });
+      setPreview(data.job);
+      setProgress(null);
     } catch (error) {
-      setMessage([error.message, error.details?.headersFound ? `พบคอลัมน์: ${error.details.headersFound.join(", ")}` : ""].filter(Boolean).join(" — "));
+      setProgress(null);
+      setMessage(describeError(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Save in slices so the bar reflects real work done. Each slice is written
+   * and acknowledged by the server before the next one is sent.
+   */
+  async function runImport() {
+    const job = preview;
+    if (!job) return setMessage("กรุณากด “ตรวจสอบไฟล์ก่อน” ก่อนนำเข้าจริง");
+
+    const startedAt = new Date().toISOString();
+    const entries = job.entries || [];
+    setBusy(true);
+    setMessage("");
+    setResult(null);
+    setProgress({ phase: "writing", percent: 0, done: 0, total: entries.length });
+
+    let inserted = 0;
+    let updated = 0;
+    try {
+      for (let start = 0; start < entries.length; start += CHUNK_SIZE) {
+        const slice = entries.slice(start, start + CHUNK_SIZE);
+        const written = await api("/api/admin/import/chunk", {
+          method: "POST",
+          body: { jobId: job.jobId, filename: job.filename, entries: slice }
+        });
+        inserted += written.inserted;
+        updated += written.updated;
+        const done = Math.min(start + slice.length, entries.length);
+        setProgress({ phase: "writing", percent: Math.round((done / entries.length) * 100), done, total: entries.length });
+      }
+
+      setProgress({ phase: "finishing", percent: 100, done: entries.length, total: entries.length });
+      const { job: saved } = await api("/api/admin/import/commit", {
+        method: "POST",
+        body: {
+          jobId: job.jobId,
+          filename: job.filename,
+          headers: job.headers,
+          startedAt,
+          status: "completed",
+          totalRows: job.totalRows,
+          validRows: job.validRows,
+          inserted,
+          updated,
+          duplicateRows: job.duplicateRows,
+          skipped: job.skipped,
+          errors: job.errors
+        }
+      });
+      setResult(saved);
+      setPreview(null);
+      setProgress({ phase: "done", percent: 100, done: entries.length, total: entries.length });
+    } catch (error) {
+      // Report how far it actually got — the slices already written are saved.
+      setProgress((current) => (current ? { ...current, phase: "failed" } : null));
+      setMessage(`${describeError(error)} — บันทึกสำเร็จไปแล้ว ${(inserted + updated).toLocaleString("th-TH")} รายการ สามารถกด “นำเข้าจริง” ซ้ำเพื่อทำต่อได้`);
     } finally {
       setBusy(false);
     }
@@ -290,16 +362,17 @@ function ImportExport({ canReset }) {
         <Upload />
         <strong>{file?.name || "กดเพื่อเลือกไฟล์ .xlsx หรือ .csv"}</strong>
         <small>ระบบจะตรวจสอบข้อมูลให้ก่อน แล้วจึงยืนยันบันทึกจริง</small>
-        <input type="file" accept=".xlsx,.csv" onChange={(event) => { setFile(event.target.files?.[0] || null); setPreview(null); setResult(null); setMessage(""); }} />
+        <input type="file" accept=".xlsx,.csv" onChange={(event) => { setFile(event.target.files?.[0] || null); setPreview(null); setResult(null); setMessage(""); setProgress(null); }} />
       </label>
 
       <div className="button-row">
-        <button className="ghost" disabled={busy || !file} onClick={() => send(true)}>ตรวจสอบไฟล์ก่อน</button>
-        <button className="next compact-btn" disabled={busy || !file} onClick={() => send(false)}>นำเข้าจริง</button>
+        <button className="ghost" disabled={busy || !file} onClick={check}>1. ตรวจสอบไฟล์ก่อน</button>
+        <button className="next compact-btn" disabled={busy || !preview} onClick={runImport}>2. นำเข้าจริง</button>
       </div>
 
+      <ProgressBar progress={progress} />
       <Alert>{message}</Alert>
-      {preview && <ImportReport job={preview} title="ผลการตรวจสอบ (ยังไม่บันทึก)" />}
+      {preview && <ImportReport job={preview} title="ผลการตรวจสอบ — ยังไม่บันทึก กด “นำเข้าจริง” เพื่อบันทึก" />}
       {result && <ImportReport job={result} title="นำเข้าเรียบร้อยแล้ว" tone="ok" />}
 
       <h3 className="section-gap">ส่งออกข้อมูล</h3>
@@ -328,13 +401,13 @@ function ImportExport({ canReset }) {
         </button>
       </div>
 
-      {canReset && <DangerZone />}
+      <DangerZone canReset={canReset} />
     </div>
   );
 }
 
 /** Owner-only wipe, used to clear test data before the real round begins. */
-function DangerZone() {
+function DangerZone({ canReset }) {
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -369,12 +442,19 @@ function DangerZone() {
         <br />
         การกระทำนี้ <strong>ย้อนกลับไม่ได้</strong> และทำได้เฉพาะเจ้าของระบบเท่านั้น
       </p>
-      <div className="filters">
-        <Field label={`พิมพ์ "${PHRASE}" เพื่อยืนยัน`} value={confirm} setValue={setConfirm} placeholder={PHRASE} />
-        <button className="danger-btn compact-btn" disabled={busy || confirm.trim() !== PHRASE} onClick={reset}>
-          <Trash2 /> ล้างข้อมูลทั้งหมด
-        </button>
-      </div>
+      {canReset ? (
+        <div className="filters">
+          <Field label={`พิมพ์ "${PHRASE}" เพื่อยืนยัน`} value={confirm} setValue={setConfirm} placeholder={PHRASE} />
+          <button className="danger-btn compact-btn" disabled={busy || confirm.trim() !== PHRASE} onClick={reset}>
+            <Trash2 /> {busy ? "กำลังล้างข้อมูล…" : "ล้างข้อมูลทั้งหมด"}
+          </button>
+        </div>
+      ) : (
+        <Alert tone="warn">
+          บัญชีของท่านเป็นผู้ดูแลระบบ จึงไม่มีสิทธิ์ล้างข้อมูล — กรุณาออกจากระบบแล้วเข้าใหม่ด้วย
+          <strong> บัญชีเจ้าของระบบ</strong> เพื่อใช้งานส่วนนี้
+        </Alert>
+      )}
       <Alert>{message}</Alert>
       {result && (
         <Alert tone="ok">
@@ -384,6 +464,36 @@ function DangerZone() {
           รูปภาพ {result.photos.toLocaleString("th-TH")} ไฟล์ — ระบบพร้อมเริ่มใช้งานจริงแล้ว
         </Alert>
       )}
+    </div>
+  );
+}
+
+const PROGRESS_LABELS = {
+  reading: "กำลังอ่านและตรวจสอบไฟล์…",
+  writing: "กำลังบันทึกลงฐานข้อมูล",
+  finishing: "กำลังบันทึกประวัติการนำเข้า…",
+  done: "นำเข้าเสร็จสมบูรณ์",
+  failed: "การนำเข้าหยุดกลางคัน"
+};
+
+function ProgressBar({ progress }) {
+  if (!progress) return null;
+  const { phase, percent, done, total } = progress;
+  const indeterminate = phase === "reading" || phase === "finishing";
+  const thai = (value) => value.toLocaleString("th-TH");
+
+  return (
+    <div className={`progress-panel phase-${phase}`}>
+      <div className="progress-head">
+        <strong>{PROGRESS_LABELS[phase]}</strong>
+        {phase === "writing" && <span>{thai(done)} / {thai(total)} รายการ ({percent}%)</span>}
+        {phase === "done" && <span>{thai(total)} รายการ</span>}
+        {phase === "failed" && <span>บันทึกแล้ว {thai(done)} จาก {thai(total)} รายการ</span>}
+      </div>
+      <div className="progress-track" role="progressbar" aria-valuenow={indeterminate ? undefined : percent} aria-valuemin="0" aria-valuemax="100">
+        <div className={indeterminate ? "progress-fill indeterminate" : "progress-fill"} style={indeterminate ? undefined : { width: `${percent}%` }} />
+      </div>
+      {phase === "writing" && <small>กรุณาอย่าปิดหน้านี้จนกว่าจะเสร็จ — หากหลุดกลางคัน ข้อมูลที่บันทึกไปแล้วจะยังอยู่ และกดนำเข้าซ้ำได้</small>}
     </div>
   );
 }

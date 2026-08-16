@@ -25,7 +25,8 @@ app.use((_req, res, next) => {
 
 // JSON only — multipart routes opt in via the multipartBody middleware so the
 // body parser never touches an upload stream.
-app.use(express.json({ limit: "1mb" }));
+// 2 MB covers a 1,000-row chunk from the console's progress-tracked import.
+app.use(express.json({ limit: "2mb" }));
 app.use("/uploads", express.static(uploadsDir, { maxAge: "1h", index: false }));
 
 app.get("/api/health", route(async (_req, res) => {
