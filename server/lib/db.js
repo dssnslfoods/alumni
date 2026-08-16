@@ -194,6 +194,32 @@ export async function bulkSet(collection, entries, { merge = true, onProgress } 
   return entries.length;
 }
 
+/**
+ * Delete every document in a collection and return how many were removed.
+ * Used only by the administrator "clear all data" action.
+ */
+export async function deleteAllDocs(collection) {
+  if (!firestore) {
+    const documents = readLocal(collection);
+    const count = Object.keys(documents).length;
+    writeLocal(collection, {});
+    return count;
+  }
+  let deleted = 0;
+  // Page through the collection so a 10,000-document wipe never holds the
+  // whole set in memory at once.
+  for (;;) {
+    const snapshot = await firestore.collection(collection).limit(500).get();
+    if (snapshot.empty) break;
+    const writer = firestore.bulkWriter();
+    snapshot.docs.forEach((doc) => writer.delete(doc.ref));
+    await writer.close();
+    deleted += snapshot.size;
+    if (snapshot.size < 500) break;
+  }
+  return deleted;
+}
+
 /** Fetch documents by id in chunks — avoids N round trips. */
 export async function getDocsByIds(collection, ids) {
   const unique = [...new Set(ids.map(String).filter(Boolean))];

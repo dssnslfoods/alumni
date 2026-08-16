@@ -97,6 +97,18 @@ export async function storePhoto(record, normalized) {
   };
 }
 
+/** Remove every stored yearbook photo. Part of the "clear all data" action. */
+export async function deleteAllPhotos() {
+  if (!storageBucket) {
+    const files = fs.existsSync(uploadsDir) ? fs.readdirSync(uploadsDir).filter((name) => name !== ".gitkeep") : [];
+    files.forEach((name) => fs.unlinkSync(path.join(uploadsDir, name)));
+    return files.length;
+  }
+  const [files] = await storageBucket.getFiles({ prefix: `${config.storageFolder}/` });
+  await storageBucket.deleteFiles({ prefix: `${config.storageFolder}/`, force: true });
+  return files.length;
+}
+
 export async function deletePhoto(photo) {
   if (!photo?.storagePath) return;
   try {

@@ -4,7 +4,7 @@ import { generatePassword } from "../lib/crypto.js";
 import { badRequest, forbidden, notFound, route } from "../lib/http.js";
 import { audit } from "../lib/audit.js";
 import { multipartBody } from "../lib/multipart.js";
-import { listDocs } from "../lib/db.js";
+import { countDocs, deleteAllDocs, listDocs } from "../lib/db.js";
 import { assertBatchAccess, loadUser, requireAuth, requireFreshPassword, requirePermission } from "../middleware/auth.js";
 import {
   ROLES,
@@ -35,6 +35,8 @@ import {
   validateContacts
 } from "../domain/alumni.js";
 import { buildExportWorkbook, buildImportTemplate, importAlumniWorkbook } from "../domain/excel.js";
+import { generateSampleRows } from "../domain/sample-data.js";
+import { deleteAllPhotos } from "../domain/photos.js";
 import { getSettings, updateSettings } from "../domain/settings.js";
 
 const router = express.Router();
@@ -194,9 +196,16 @@ router.patch("/alumni/:id", requirePermission("alumni.write"), route(async (req,
 
 /* -------------------------------- import --------------------------------- */
 
-router.get("/import/template.xlsx", requirePermission("alumni.import"), route(async (_req, res) => {
-  res.setHeader("Content-Disposition", "attachment; filename=alumni-import-template.xlsx");
-  res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").send(Buffer.from(await buildImportTemplate()));
+/**
+ * Blank template for entering real data, and the same template pre-filled with
+ * synthetic rows so an administrator can rehearse the whole import at scale.
+ */
+router.get("/import/template.xlsx", requirePermission("alumni.import"), route(async (req, res) => {
+  const requested = Number(req.query.rows) || 0;
+  const rows = requested > 0 ? generateSampleRows(Math.min(requested, 10000)) : [];
+  const filename = rows.length ? `alumni-sample-${rows.length}.xlsx` : "alumni-import-template.xlsx";
+  res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
+  res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").send(Buffer.from(await buildImportTemplate({ rows })));
 }));
 
 router.post("/import", requirePermission("alumni.import"), multipartBody({ maxFiles: 1 }), route(async (req, res) => {
@@ -247,6 +256,34 @@ router.put("/settings", requirePermission("settings.manage"), route(async (req, 
   const settings = await updateSettings(req.body || {}, req.user);
   await audit(req, "settings.update", { meta: { fields: Object.keys(req.body || {}) } });
   res.json({ settings });
+}));
+
+/* ----------------------------- danger zone ------------------------------- */
+
+const RESET_PHRASE = "ล้างข้อมูลทั้งหมด";
+
+/**
+ * Wipe every alumni record, submission, import job and stored photo so the
+ * association can start the real round with a clean database after testing.
+ *
+ * Deliberately preserved: user accounts, system settings, and the audit log —
+ * the record that this wipe happened must survive the wipe.
+ */
+router.post("/reset", requirePermission("data.reset"), route(async (req, res) => {
+  if (String(req.body?.confirm || "").trim() !== RESET_PHRASE) {
+    throw badRequest(`เพื่อยืนยัน กรุณาพิมพ์ข้อความ "${RESET_PHRASE}" ให้ตรงทุกตัวอักษร`);
+  }
+
+  const before = await countDocs(config.collections.alumni);
+  const [alumni, submissions, importJobs, photos] = [
+    await deleteAllDocs(config.collections.alumni),
+    await deleteAllDocs(config.collections.submissions),
+    await deleteAllDocs(config.collections.importJobs),
+    await deleteAllPhotos()
+  ];
+
+  await audit(req, "data.reset", { meta: { alumni, submissions, importJobs, photos, before } });
+  res.json({ ok: true, deleted: { alumni, submissions, importJobs, photos } });
 }));
 
 /* ------------------------------- audit log ------------------------------- */

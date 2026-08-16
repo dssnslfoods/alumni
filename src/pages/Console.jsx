@@ -61,7 +61,7 @@ export function Console({ user, onSignOut, onChangePassword }) {
 
         {tab === "overview" && <Overview user={user} />}
         {tab === "alumni" && <AlumniTable user={user} />}
-        {tab === "import" && <ImportExport />}
+        {tab === "import" && <ImportExport canReset={user.role === "owner"} />}
         {tab === "users" && <UserManager user={user} />}
         {tab === "settings" && <SettingsPanel />}
         {tab === "audit" && <AuditLog />}
@@ -235,7 +235,7 @@ function AlumniTable({ user }) {
 
 /* ----------------------------- import / export ---------------------------- */
 
-function ImportExport() {
+function ImportExport({ canReset }) {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const [result, setResult] = useState(null);
@@ -273,9 +273,18 @@ function ImportExport() {
         ลำดับคอลัมน์สลับกันได้ และ<strong>ข้อมูลที่นิสิตเก่ากรอกไว้แล้วจะไม่ถูกทับ</strong> — กดปุ่มด้านล่างเพื่อดาวน์โหลดไฟล์ต้นแบบพร้อมคำแนะนำการกรอก
       </p>
 
-      <button className="ghost" onClick={() => download("/api/admin/import/template.xlsx", "alumni-import-template.xlsx")}>
-        <Download /> ดาวน์โหลดไฟล์ตัวอย่าง
-      </button>
+      <div className="button-row">
+        <button className="ghost" onClick={() => download("/api/admin/import/template.xlsx", "แบบฟอร์มรายชื่อนิสิตเก่า.xlsx")}>
+          <Download /> ไฟล์ต้นแบบเปล่า (ใช้กรอกข้อมูลจริง)
+        </button>
+        <button className="ghost" onClick={() => download("/api/admin/import/template.xlsx?rows=8000", "ตัวอย่างข้อมูลนิสิตเก่า-8000-รายการ.xlsx")}>
+          <Download /> ไฟล์ตัวอย่างพร้อมข้อมูล 8,000 รายการ
+        </button>
+      </div>
+      <p className="panel-note">
+        ไฟล์ตัวอย่างเป็น<strong>ข้อมูลสมมติทั้งหมด ไม่ใช่ข้อมูลของบุคคลจริง</strong> ใช้ทดลองนำเข้าเพื่อดูว่าระบบทำงานอย่างไรที่ปริมาณจริง
+        เมื่อทดสอบเสร็จให้กด “ล้างข้อมูลทั้งหมด” ด้านล่างก่อนนำเข้าข้อมูลจริง
+      </p>
 
       <label className="file-drop">
         <Upload />
@@ -318,6 +327,63 @@ function ImportExport() {
           <Download /> ไฟล์สำหรับติดตามงาน
         </button>
       </div>
+
+      {canReset && <DangerZone />}
+    </div>
+  );
+}
+
+/** Owner-only wipe, used to clear test data before the real round begins. */
+function DangerZone() {
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [result, setResult] = useState(null);
+  const PHRASE = "ล้างข้อมูลทั้งหมด";
+
+  async function reset() {
+    if (!window.confirm(`ยืนยันล้างข้อมูลนิสิตเก่าทั้งหมด?\n\nการกระทำนี้ย้อนกลับไม่ได้ และจะลบระเบียนนิสิตเก่า ข้อมูลที่ส่งเข้ามา ประวัติการนำเข้า และรูปภาพทั้งหมด`)) return;
+    setBusy(true);
+    setMessage("");
+    setResult(null);
+    try {
+      const data = await api("/api/admin/reset", { method: "POST", body: { confirm } });
+      setResult(data.deleted);
+      setConfirm("");
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="danger-zone">
+      <h3>ล้างข้อมูลทั้งหมด</h3>
+      <p className="panel-note">
+        ใช้เมื่อทดสอบระบบเสร็จแล้วและต้องการเริ่มใช้งานจริงจากฐานข้อมูลว่าง
+        <br />
+        <strong>จะถูกลบ:</strong> ระเบียนนิสิตเก่า ข้อมูลที่นิสิตเก่าส่งเข้ามา ประวัติการนำเข้า และรูปภาพทั้งหมดใน Storage
+        <br />
+        <strong>จะไม่ถูกลบ:</strong> บัญชีผู้ใช้ระบบ การตั้งค่า และบันทึกการใช้งาน
+        <br />
+        การกระทำนี้ <strong>ย้อนกลับไม่ได้</strong> และทำได้เฉพาะเจ้าของระบบเท่านั้น
+      </p>
+      <div className="filters">
+        <Field label={`พิมพ์ "${PHRASE}" เพื่อยืนยัน`} value={confirm} setValue={setConfirm} placeholder={PHRASE} />
+        <button className="danger-btn compact-btn" disabled={busy || confirm.trim() !== PHRASE} onClick={reset}>
+          <Trash2 /> ล้างข้อมูลทั้งหมด
+        </button>
+      </div>
+      <Alert>{message}</Alert>
+      {result && (
+        <Alert tone="ok">
+          ล้างข้อมูลเรียบร้อยแล้ว — ระเบียนนิสิตเก่า {result.alumni.toLocaleString("th-TH")} รายการ,
+          ข้อมูลที่ส่งเข้ามา {result.submissions.toLocaleString("th-TH")} รายการ,
+          ประวัติการนำเข้า {result.importJobs.toLocaleString("th-TH")} รายการ,
+          รูปภาพ {result.photos.toLocaleString("th-TH")} ไฟล์ — ระบบพร้อมเริ่มใช้งานจริงแล้ว
+        </Alert>
+      )}
     </div>
   );
 }

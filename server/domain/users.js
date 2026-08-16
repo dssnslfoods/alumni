@@ -24,6 +24,8 @@ const PERMISSIONS = {
   "submissions.review": ["owner", "admin", "staff"],
   "settings.manage": ["owner", "admin"],
   "audit.read": ["owner", "admin"],
+  // Wiping every alumni record is irreversible, so it stays with the owner.
+  "data.reset": ["owner"],
   "self.submission": ["alumni", "owner", "admin", "staff"]
 };
 

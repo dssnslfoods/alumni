@@ -62,8 +62,9 @@ npm run owner
 | `src/pages/Login.jsx` | หน้าเข้าสู่ระบบ และหน้าเปลี่ยนรหัสผ่าน |
 | `src/pages/Console.jsx` | หน้าจัดการ 6 แท็บสำหรับผู้ดูแล |
 | `scripts/create-owner.mjs` | สร้าง/ตรวจสอบบัญชีเจ้าของระบบ |
-| `scripts/smoke-test.mjs` | ทดสอบ end-to-end 54 รายการ
-| `scripts/generate-sample-data.mjs` | สร้างไฟล์ Excel ข้อมูลสมมติไว้ทดสอบที่ระดับหมื่นรายการ |
+| `scripts/smoke-test.mjs` | ทดสอบ end-to-end 62 รายการ
+| `server/domain/sample-data.js` | ตัวสร้างข้อมูลสมมติสำหรับทดสอบ (ใช้ร่วมกันระหว่าง API กับสคริปต์) |
+| `scripts/generate-sample-data.mjs` | เขียนไฟล์ Excel ข้อมูลสมมติลงโฟลเดอร์ `outputs/` |
 | `docs/DATABASE.md` | **เอกสารโครงสร้างฐานข้อมูลฉบับเต็ม** |
 
 ---
@@ -142,7 +143,9 @@ curl -X POST https://alumni-13428.web.app/api/auth/emergency-owner-reset \
 
 หน้า `/admin` → แท็บ **นำเข้า / ส่งออก**
 
-1. กด **ดาวน์โหลดไฟล์ตัวอย่าง** — ได้ไฟล์ต้นแบบพร้อมชีตคำแนะนำและ data validation
+1. ดาวน์โหลดไฟล์ตั้งต้น — มีให้เลือก 2 แบบ
+   - **ไฟล์ต้นแบบเปล่า** สำหรับกรอกข้อมูลจริง
+   - **ไฟล์ตัวอย่างพร้อมข้อมูล 8,000 รายการ** (ข้อมูลสมมติ) สำหรับทดลองใช้งานที่ปริมาณจริง
 2. เลือกไฟล์ `.xlsx` หรือ `.csv`
 3. กด **ตรวจสอบไฟล์ก่อน** — ระบบอ่านไฟล์และรายงานผลโดยยังไม่บันทึก (dry run)
 4. เมื่อผลถูกต้องแล้วจึงกด **นำเข้าจริง**
@@ -223,10 +226,31 @@ curl -X POST https://alumni-13428.web.app/api/auth/emergency-owner-reset \
 | POST | `/api/admin/users/:uid/reset-password` | `users.manage` |
 | POST | `/api/admin/import` | `alumni.import` |
 | GET | `/api/admin/import/template.xlsx` | `alumni.import` |
+| GET | `/api/admin/import/template.xlsx?rows=8000` | `alumni.import` (ไฟล์ตัวอย่างพร้อมข้อมูล สูงสุด 10,000 แถว) |
+| POST | `/api/admin/reset` | `data.reset` (**owner เท่านั้น**) |
 | GET | `/api/admin/import/jobs` | `alumni.import` |
 | GET | `/api/admin/export.xlsx` | `alumni.export` |
 | GET/PUT | `/api/admin/settings` | `settings.manage` |
 | GET | `/api/admin/audit` | `audit.read` |
+
+---
+
+## 6.5 ล้างข้อมูลทั้งหมดก่อนเริ่มใช้งานจริง
+
+หลังทดลองนำเข้าไฟล์ตัวอย่างแล้ว ให้ล้างข้อมูลทดสอบก่อนนำเข้าข้อมูลจริง
+
+หน้า `/admin` → แท็บ **นำเข้า / ส่งออก** → เลื่อนลงล่างสุดถึงกล่องสีแดง **ล้างข้อมูลทั้งหมด**
+พิมพ์ข้อความ `ล้างข้อมูลทั้งหมด` ให้ตรงทุกตัวอักษร แล้วกดปุ่ม
+
+| | |
+| --- | --- |
+| **ถูกลบ** | `alumni`, `alumniSubmissions`, `importJobs` และรูปภาพทั้งหมดใน Storage |
+| **ไม่ถูกลบ** | `users`, `settings`, `auditLogs` |
+| **ใครทำได้** | `owner` เท่านั้น — `admin` เรียก endpoint นี้จะได้ 403 |
+
+เก็บ `auditLogs` ไว้โดยตั้งใจ เพราะบันทึกที่ระบุว่ามีการล้างข้อมูลต้องรอดจากการล้างข้อมูลด้วย
+
+> ⚠️ ย้อนกลับไม่ได้ ไม่มีถังขยะ ไม่มี undo — ถ้าต้องการสำรองข้อมูลก่อน ให้กด “ไฟล์สำหรับติดตามงาน” เพื่อส่งออกทุกอย่างเก็บไว้ก่อน
 
 ---
 
@@ -303,7 +327,7 @@ npm run server
 SMOKE_OWNER_PASSWORD='<รหัสผ่านเริ่มต้น>' npm run smoke
 ```
 
-ครอบคลุม 54 รายการ: การเข้าสู่ระบบ, การบังคับเปลี่ยนรหัสผ่าน, การเพิกถอน token,
+ครอบคลุม 62 รายการ: การเข้าสู่ระบบ, การบังคับเปลี่ยนรหัสผ่าน, การเพิกถอน token,
 การป้องกัน privilege escalation, ขอบเขตรุ่นของ `staff`, การนำเข้า Excel (dry run + จริง + ซ้ำ),
 การค้นหา, การยืนยันตัวตน, การอัปโหลดรูปแบบ multipart, การส่งออกทั้งสองแบบ,
 การแยกข้อมูลติดต่อภายในออกจากไฟล์ทีมออกแบบ, โครงสร้างเทมเพลต และ audit log
