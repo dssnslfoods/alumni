@@ -480,6 +480,8 @@ function ImportExport({ canReset }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [exportBatch, setExportBatch] = useState("");
+  const [exportStatus, setExportStatus] = useState("");
+  const [includeOutreach, setIncludeOutreach] = useState(false);
   const [progress, setProgress] = useState(null);
 
   const CHUNK_SIZE = 400;
@@ -488,6 +490,21 @@ function ImportExport({ canReset }) {
     return [error.message, error.details?.headersFound ? `พบคอลัมน์ในไฟล์: ${error.details.headersFound.join(", ")}` : ""]
       .filter(Boolean)
       .join(" — ");
+  }
+
+  async function exportExcel() {
+    setMessage("");
+    const params = new URLSearchParams();
+    if (exportBatch.trim()) params.set("batch", exportBatch.trim());
+    if (exportStatus) params.set("status", exportStatus);
+    if (includeOutreach) params.set("includeOutreach", "true");
+    const query = params.toString();
+    const suffix = exportBatch.trim() ? `-รุ่น${exportBatch.trim().replace(/[\s,;]+/g, "-")}` : "-ทุกรุ่น";
+    try {
+      await download(`/api/admin/export.xlsx${query ? `?${query}` : ""}`, `ข้อมูลนิสิตเก่า${suffix}.xlsx`);
+    } catch (error) {
+      setMessage(error.message);
+    }
   }
 
   /** Parse and validate only — nothing is saved yet. */
@@ -615,29 +632,35 @@ function ImportExport({ canReset }) {
 
       <h3 className="section-gap">ส่งออกข้อมูล</h3>
       <p className="panel-note">
-        ไฟล์ส่งออกไม่มีเลขบัตรประชาชนหรือค่าแฮชใด ๆ ลิงก์รูปภาพถือเป็นข้อมูลลับ
+        ส่งออกข้อมูลนิสิตเก่าเป็นไฟล์ Excel สำหรับใช้งานภายใน เลือกได้ทั้งเฉพาะรุ่นหรือทั้งหมด
         <br />
-        <strong>ไฟล์สำหรับทีมออกแบบ</strong> มีเฉพาะข้อมูลที่นิสิตเก่ายินยอมให้ลงหนังสือ ส่วน
-        <strong> ไฟล์สำหรับติดตามงาน</strong> จะเพิ่มอีเมลและเบอร์โทรที่ผู้ดูแลใช้ติดต่อ — ห้ามส่งต่อให้ทีมออกแบบ
+        ไฟล์นี้ <strong>ไม่มีเลขบัตรประชาชน</strong> และจะรวมทุกสถานะทั้งที่ยืนยันแล้ว ยังไม่ตอบ และไม่ประสงค์ลง
+        <br />
+        หากต้องการไฟล์ส่งมอบให้ทีมออกแบบ (พร้อมรูปถ่ายและไฟล์สำหรับ InDesign) ให้ใช้แท็บ <strong>ส่งมอบงานออกแบบ</strong>
       </p>
       <div className="filters">
-        <Field label="ระบุรุ่น (เว้นว่าง = ทุกรุ่น)" value={exportBatch} setValue={(value) => setExportBatch(value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric" />
-        <button
-          className="next compact-btn"
-          onClick={() => download(`/api/admin/export.xlsx${exportBatch ? `?batch=${exportBatch}` : ""}`, `yearbook-2569${exportBatch ? `-batch-${exportBatch}` : ""}.xlsx`)}
-        >
-          <Download /> ไฟล์สำหรับทีมออกแบบ
-        </button>
-        <button
-          className="ghost compact-btn"
-          onClick={() => download(
-            `/api/admin/export.xlsx?includeOutreach=true${exportBatch ? `&batch=${exportBatch}` : ""}`,
-            `yearbook-2569${exportBatch ? `-batch-${exportBatch}` : ""}-followup.xlsx`
-          )}
-        >
-          <Download /> ไฟล์สำหรับติดตามงาน
+        <Field
+          label="ระบุรุ่น (เว้นว่าง = ทุกรุ่น)"
+          value={exportBatch}
+          setValue={setExportBatch}
+          placeholder="เช่น 45 หรือ 45, 46, 47"
+          hint="(หลายรุ่นคั่นด้วยจุลภาค)"
+          inputMode="numeric"
+        />
+        <label className="field"><span>สถานะ</span>
+          <select value={exportStatus} onChange={(event) => setExportStatus(event.target.value)}>
+            <option value="">ทุกสถานะ</option>
+            {Object.entries(STATUS_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+          </select>
+        </label>
+        <button className="next compact-btn" onClick={exportExcel}>
+          <Download /> ส่งออก Excel
         </button>
       </div>
+      <label className="switch-row">
+        <input type="checkbox" checked={includeOutreach} onChange={(event) => setIncludeOutreach(event.target.checked)} />
+        <span>รวมอีเมลและเบอร์โทรที่ผู้ดูแลใช้ติดตามงาน — เป็นข้อมูลภายใน ห้ามส่งต่อให้ทีมออกแบบ</span>
+      </label>
 
       <DangerZone canReset={canReset} />
     </div>
