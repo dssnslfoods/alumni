@@ -13,3 +13,6 @@ uploads/*
 .firebase/
 
 .DS_Store
+
+# ไฟล์ที่ระบบสร้างขึ้น
+outputs/
