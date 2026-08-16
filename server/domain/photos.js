@@ -97,6 +97,25 @@ export async function storePhoto(record, normalized) {
   };
 }
 
+/**
+ * Open a stored photo as a readable stream, from either backend.
+ * Streaming (rather than buffering) is what lets a whole batch be zipped
+ * without holding hundreds of megabytes in memory.
+ */
+export async function openPhotoStream(photo) {
+  if (!photo?.storagePath) return null;
+  try {
+    if (photo.bucket === "local" || !storageBucket) {
+      const file = path.join(uploadsDir, photo.storagePath);
+      return fs.existsSync(file) ? fs.createReadStream(file) : null;
+    }
+    return storageBucket.file(photo.storagePath).createReadStream();
+  } catch (error) {
+    console.error("open photo failed", photo.storagePath, error?.message);
+    return null;
+  }
+}
+
 /** Remove every stored yearbook photo. Part of the "clear all data" action. */
 export async function deleteAllPhotos() {
   if (!storageBucket) {

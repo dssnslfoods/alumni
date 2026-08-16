@@ -22,9 +22,18 @@ import { deletePhoto, normalizePhoto, storePhoto } from "../domain/photos.js";
 import { loadUser } from "../middleware/auth.js";
 
 const router = express.Router();
-const searchLimiter = createRateLimiter({ windowMs: 10 * 60 * 1000, max: 60 });
-const verifyLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 8 });
-const submitLimiter = createRateLimiter({ windowMs: 60 * 60 * 1000, max: 20 });
+const searchLimiter = createRateLimiter({ windowMs: 10 * 60 * 1000, max: 200 });
+
+/**
+ * The attack worth stopping is guessing one person's 5 digits, so the tight
+ * limit is per alumni record. Thai mobile networks put thousands of people
+ * behind one CGNAT address, so a strict per-IP cap would lock out whole
+ * groups of legitimate alumni — the per-IP limit stays deliberately loose and
+ * only exists to stop mass scanning.
+ */
+const verifyPerRecordLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 8 });
+const verifyPerIpLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 120 });
+const submitLimiter = createRateLimiter({ windowMs: 60 * 60 * 1000, max: 200 });
 
 const SUBMIT_TOKEN_MINUTES = 30;
 
@@ -66,10 +75,12 @@ router.post("/search", route(async (req, res) => {
 }));
 
 router.post("/verify", route(async (req, res) => {
-  if (!verifyLimiter(clientIp(req))) throw tooMany("ยืนยันตัวตนหลายครั้งเกินไป กรุณารอ 15 นาทีแล้วลองใหม่");
-  const record = await findAlumniById(req.body?.alumniId);
+  const alumniId = String(req.body?.alumniId || "").slice(0, 64);
+  if (!verifyPerRecordLimiter(`rec:${alumniId}`)) throw tooMany("ยืนยันตัวตนของรายชื่อนี้หลายครั้งเกินไป กรุณารอ 15 นาทีแล้วลองใหม่");
+  if (!verifyPerIpLimiter(clientIp(req))) throw tooMany("มีการยืนยันตัวตนจำนวนมากจากเครือข่ายนี้ กรุณารอสักครู่แล้วลองใหม่");
+  const record = await findAlumniById(alumniId);
   if (!record || !verifyIdCard(record, req.body?.idCardLast5)) {
-    await audit(req, "public.verify.failed", { targetType: "alumni", targetId: req.body?.alumniId || "" });
+    await audit(req, "public.verify.failed", { targetType: "alumni", targetId: alumniId });
     throw notFound("ข้อมูลยืนยันตัวตนไม่ตรงกับฐานข้อมูลอ้างอิง");
   }
   await audit(req, "public.verify.success", { targetType: "alumni", targetId: record.id });

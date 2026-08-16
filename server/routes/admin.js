@@ -31,6 +31,7 @@ import {
   listAllAlumni,
   normalizeText,
   parseBatch,
+  parseBatchList,
   saveAlumni,
   syncSubmission,
   validateContacts
@@ -45,6 +46,14 @@ import {
 } from "../domain/excel.js";
 import { generateSampleRows } from "../domain/sample-data.js";
 import { deleteAllPhotos } from "../domain/photos.js";
+import {
+  buildDataMergeCsv,
+  buildHandoffRows,
+  buildHandoffWorkbook,
+  buildReadme,
+  handoffSummary,
+  streamPhotoArchive
+} from "../domain/handoff.js";
 import { getSettings, updateSettings } from "../domain/settings.js";
 
 const router = express.Router();
@@ -149,15 +158,26 @@ router.delete("/users/:uid", requirePermission("users.manage"), route(async (req
   res.json({ ok: true });
 }));
 
+
+/** Read a "45, 46" batch list from the query string and check the caller's scope. */
+function requestedBatches(req) {
+  const raw = req.query.batch ?? req.query.batches ?? "";
+  if (!String(raw).trim()) return [];
+  const batches = parseBatchList(raw);
+  if (batches === null || !batches.length) throw badRequest(`ระบุรุ่นไม่ถูกต้อง — ใส่เป็นตัวเลข 1-${config.maxBatch} คั่นด้วยเครื่องหมายจุลภาค เช่น 45, 46`);
+  if (batches.length > 88) throw badRequest("ระบุรุ่นได้สูงสุด 88 รุ่น");
+  batches.forEach((batch) => assertBatchAccess(req.user, batch));
+  return batches;
+}
+
 /* ------------------------------ alumni records --------------------------- */
 
 router.get("/alumni", requirePermission("alumni.read"), route(async (req, res) => {
-  const batch = req.query.batch ? parseBatch(req.query.batch) : null;
-  if (batch) assertBatchAccess(req.user, batch);
-  if (!batch && req.user.batchScope?.length) throw badRequest("กรุณาระบุรุ่นที่ต้องการดู");
+  const batches = requestedBatches(req);
+  if (!batches.length && req.user.batchScope?.length) throw badRequest("กรุณาระบุรุ่นที่ต้องการดู");
   const status = STATUSES.includes(String(req.query.status)) ? String(req.query.status) : undefined;
   const page = await listAlumni({
-    batch: batch || undefined,
+    batches,
     status,
     query: req.query.q ? String(req.query.q) : undefined,
     limit: Math.min(Math.max(Number(req.query.limit) || 100, 1), 1000),
@@ -305,17 +325,81 @@ router.get("/import/jobs", requirePermission("alumni.import"), route(async (_req
 /* -------------------------------- export --------------------------------- */
 
 router.get("/export.xlsx", requirePermission("alumni.export"), route(async (req, res) => {
-  const batch = req.query.batch ? parseBatch(req.query.batch) : null;
-  if (batch) assertBatchAccess(req.user, batch);
+  const batches = requestedBatches(req);
   // Follow-up contact details are opt-in and limited to owner/admin, so the
   // default download stays safe to hand to the design team.
   const includeOutreach = String(req.query.includeOutreach) === "true";
   if (includeOutreach && !can(req.user, "alumni.write")) throw forbidden("ไม่มีสิทธิ์ส่งออกข้อมูลติดต่อสำหรับติดตาม");
 
-  const records = await listAllAlumni({ batch: batch || undefined, status: STATUSES.includes(String(req.query.status)) ? String(req.query.status) : undefined });
-  await audit(req, "alumni.export", { meta: { count: records.length, batch: batch || "all", includeOutreach } });
-  res.setHeader("Content-Disposition", `attachment; filename=yearbook-2569${batch ? `-batch-${batch}` : ""}${includeOutreach ? "-followup" : ""}.xlsx`);
+  const records = await listAllAlumni({ batches, status: STATUSES.includes(String(req.query.status)) ? String(req.query.status) : undefined });
+  await audit(req, "alumni.export", { meta: { count: records.length, batches: batches.length ? batches : "all", includeOutreach } });
+  const suffix = batches.length === 1 ? `-batch-${batches[0]}` : batches.length ? `-${batches.length}batches` : "";
+  res.setHeader("Content-Disposition", `attachment; filename=yearbook-2569${suffix}${includeOutreach ? "-followup" : ""}.xlsx`);
   res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").send(Buffer.from(await buildExportWorkbook(records, { includeOutreach })));
+}));
+
+/* --------------------- handoff package for the design team ---------------- */
+
+/**
+ * Only records the alumnus actually confirmed go to the design team — a
+ * "pending" record has no consent behind it and must never be laid out.
+ */
+async function handoffRowsFor(req) {
+  const batches = requestedBatches(req);
+  const records = await listAllAlumni({ batches, status: "submitted" });
+  return { batches, rows: buildHandoffRows(records) };
+}
+
+router.get("/handoff/summary", requirePermission("alumni.export"), route(async (req, res) => {
+  const { batches, rows } = await handoffRowsFor(req);
+  res.json({ batches, ...handoffSummary(rows) });
+}));
+
+router.get("/handoff/data.xlsx", requirePermission("alumni.export"), route(async (req, res) => {
+  const { batches, rows } = await handoffRowsFor(req);
+  if (!rows.length) throw badRequest("ยังไม่มีข้อมูลที่ยืนยันแล้วสำหรับส่งมอบ");
+  await audit(req, "handoff.data", { meta: { count: rows.length, batches: batches.length ? batches : "all" } });
+  res.setHeader("Content-Disposition", "attachment; filename=yearbook-2569-handoff.xlsx");
+  res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    .send(Buffer.from(await buildHandoffWorkbook(rows, { generatedBy: req.user.username, generatedAt: new Date().toISOString() })));
+}));
+
+router.get("/handoff/data-merge.csv", requirePermission("alumni.export"), route(async (req, res) => {
+  const { batches, rows } = await handoffRowsFor(req);
+  if (!rows.length) throw badRequest("ยังไม่มีข้อมูลที่ยืนยันแล้วสำหรับส่งมอบ");
+  await audit(req, "handoff.csv", { meta: { count: rows.length, batches: batches.length ? batches : "all" } });
+  res.setHeader("Content-Disposition", "attachment; filename=data-merge.csv");
+  res.type("text/csv; charset=utf-8").send(buildDataMergeCsv(rows));
+}));
+
+router.get("/handoff/readme.txt", requirePermission("alumni.export"), route(async (req, res) => {
+  const { batches, rows } = await handoffRowsFor(req);
+  res.setHeader("Content-Disposition", "attachment; filename=readme.txt");
+  res.type("text/plain; charset=utf-8").send(buildReadme(rows, { generatedBy: req.user.username, generatedAt: new Date().toISOString(), batches }));
+}));
+
+/**
+ * Photos for one batch, streamed as a ZIP.
+ *
+ * One batch at a time on purpose: a full 10,000-portrait archive is several
+ * gigabytes, which no single HTTP response should carry. Per batch it is tens
+ * of megabytes, resumable by simply clicking again, and matches how a designer
+ * works through the book anyway.
+ */
+router.get("/handoff/photos.zip", requirePermission("alumni.export"), route(async (req, res) => {
+  const batch = parseBatch(req.query.batch);
+  if (batch === null) throw badRequest("กรุณาระบุรุ่นที่ต้องการดาวน์โหลดรูป ครั้งละหนึ่งรุ่น");
+  assertBatchAccess(req.user, batch);
+
+  const records = await listAllAlumni({ batches: [batch], status: "submitted" });
+  const rows = buildHandoffRows(records);
+  const withPhotos = rows.filter((row) => row.hasPhoto);
+  if (!withPhotos.length) throw badRequest(`รุ่น ${batch} ยังไม่มีรูปถ่ายที่ส่งเข้ามา`);
+
+  await audit(req, "handoff.photos", { meta: { batch, photos: withPhotos.length } });
+  res.setHeader("Content-Disposition", `attachment; filename=yearbook-2569-photos-batch-${batch}.zip`);
+  res.type("application/zip");
+  await streamPhotoArchive(res, rows, { batch, generatedBy: req.user.username, generatedAt: new Date().toISOString() });
 }));
 
 /* ------------------------------- settings -------------------------------- */

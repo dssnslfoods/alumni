@@ -5,9 +5,11 @@ import {
   ClipboardList,
   Download,
   FileSpreadsheet,
+  FileText,
   KeyRound,
   LayoutDashboard,
   LogOut,
+  Palette,
   RefreshCw,
   Settings,
   Trash2,
@@ -29,6 +31,7 @@ export function Console({ user, onSignOut, onChangePassword }) {
     { key: "overview", label: "ภาพรวม", icon: LayoutDashboard, show: true },
     { key: "alumni", label: "รายชื่อนิสิตเก่า", icon: Users, show: true },
     { key: "import", label: "นำเข้า / ส่งออก", icon: FileSpreadsheet, show: canImport },
+    { key: "handoff", label: "ส่งมอบงานออกแบบ", icon: Palette, show: canImport },
     { key: "users", label: "ผู้ใช้งานระบบ", icon: UserPlus, show: canManageUsers },
     { key: "settings", label: "ตั้งค่า", icon: Settings, show: canManageUsers },
     { key: "audit", label: "บันทึกการใช้งาน", icon: ClipboardList, show: canManageUsers }
@@ -63,7 +66,8 @@ export function Console({ user, onSignOut, onChangePassword }) {
 
         {tab === "overview" && <Overview user={user} />}
         {tab === "alumni" && <AlumniTable user={user} />}
-        {tab === "import" && <ImportExport canReset={user.role === "owner"} />}
+        {tab === "import" && <ImportExport canReset={["owner", "admin"].includes(user.role)} />}
+        {tab === "handoff" && <HandoffPanel user={user} />}
         {tab === "users" && <UserManager user={user} />}
         {tab === "settings" && <SettingsPanel />}
         {tab === "audit" && <AuditLog />}
@@ -89,59 +93,241 @@ function useAsync(loader, deps = []) {
 
 /* -------------------------------- overview -------------------------------- */
 
-function Overview() {
+function Overview({ user }) {
   const { loading, data, error, reload } = useAsync(() => api("/api/admin/summary"));
   if (loading) return <p className="console-loading">กำลังโหลดข้อมูล…</p>;
   if (error) return <Alert>{error}</Alert>;
 
-  const cards = [
-    ["รายชื่อทั้งหมด", data.total],
-    ["ยืนยันลงหนังสือ", data.submitted],
-    ["ยังไม่ตอบ", data.pending],
-    ["ไม่ประสงค์ลง", data.declined],
-    ["ส่งรูปแล้ว", data.withPhoto],
-    ["บัญชีผู้ใช้ระบบ", data.userCount]
-  ];
+  const thai = (value) => Number(value || 0).toLocaleString("th-TH");
+  const scoped = user?.batchScope?.length ? user.batchScope : null;
+  const batches = scoped ? data.byBatch.filter((item) => scoped.includes(item.batch)) : data.byBatch;
 
   return (
-    <div className="panel">
-      <div className="panel-head">
-        <h3>ภาพรวมข้อมูล</h3>
+    <div className="dashboard">
+      <div className="panel-head dash-head">
+        <div>
+          <h3>ภาพรวมการจัดทำหนังสืออนุสรณ์</h3>
+          <p className="panel-note">
+            อัปเดตล่าสุดเมื่อ {data.lastSubmittedAt ? formatTime(data.lastSubmittedAt) : "ยังไม่มีผู้ส่งข้อมูล"}
+            {" · "}7 วันที่ผ่านมามีผู้ส่งเพิ่ม {thai(data.submittedLast7Days)} คน
+          </p>
+        </div>
         <button className="ghost" onClick={reload}><RefreshCw /> รีเฟรช</button>
       </div>
-      <div className="stat-cards">
-        {cards.map(([label, value]) => (
-          <div key={label}><span>{label}</span><strong>{value ?? 0}</strong></div>
-        ))}
+
+      {/* แถวบน: ความคืบหน้าโดยรวม */}
+      <div className="dash-hero">
+        <Donut
+          percent={data.submittedRate}
+          label="ยืนยันลงหนังสือ"
+          caption={`${thai(data.submitted)} จาก ${thai(data.total)} คน`}
+        />
+        <div className="dash-hero-stats">
+          <StatusBar
+            total={data.total}
+            segments={[
+              { key: "submitted", label: "ยืนยันลงหนังสือ", value: data.submitted, tone: "ok" },
+              { key: "pending", label: "ยังไม่ตอบ", value: data.pending, tone: "wait" },
+              { key: "declined", label: "ไม่ประสงค์ลง", value: data.declined, tone: "no" }
+            ]}
+          />
+          <div className="kpi-row">
+            <Kpi label="อัตราการตอบกลับ" value={`${data.responseRate}%`} note="ตอบแล้วทั้งยืนยันและปฏิเสธ" />
+            <Kpi label="ส่งรูปถ่ายแล้ว" value={`${data.photoRate}%`} note={`${thai(data.withPhoto)} คน · ${(data.photoBytes / 1024 / 1024).toFixed(0)} MB`} />
+            <Kpi label="รุ่นที่มีข้อมูล" value={thai(data.batchesWithData)} note="จากทั้งหมดที่นำเข้า" />
+            <Kpi label="เปลี่ยนชื่อ-สกุล" value={thai(data.nameChanged)} note="เทียบกับทะเบียนเดิม" />
+          </div>
+        </div>
       </div>
 
-      <h4>จำนวนผู้ยืนยันแยกตามรุ่น</h4>
-      {data.byBatch?.length ? (
-        <div className="batch-grid">
-          {data.byBatch.map((item) => (
-            <div key={item.batch}><span>รุ่น {item.batch}</span><strong>{item.responses}</strong></div>
-          ))}
-        </div>
-      ) : <p className="empty">ยังไม่มีผู้ยืนยันข้อมูล</p>}
+      {/* แนวโน้มรายวัน */}
+      <div className="dash-card">
+        <h4>ผู้ส่งข้อมูลราย 14 วันล่าสุด</h4>
+        <Sparkline points={data.daily} />
+      </div>
 
-      <h4>การนำเข้าล่าสุด</h4>
-      {data.lastImports?.length ? (
-        <table className="data-table">
-          <thead><tr><th>ไฟล์</th><th>โดย</th><th>เพิ่มใหม่</th><th>อัปเดต</th><th>ข้าม</th><th>เวลา</th></tr></thead>
-          <tbody>
-            {data.lastImports.map((job) => (
-              <tr key={job.jobId}>
-                <td>{job.filename}{job.dryRun && <em> (ทดลอง)</em>}</td>
-                <td>{job.uploadedByUsername}</td>
-                <td>{job.inserted}</td>
-                <td>{job.updated}</td>
-                <td>{job.skipped}</td>
-                <td>{formatTime(job.startedAt)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : <p className="empty">ยังไม่เคยนำเข้าไฟล์</p>}
+      {/* ความครบถ้วนของข้อมูล */}
+      <div className="dash-grid">
+        <div className="dash-card">
+          <h4>ความครบถ้วนของข้อมูลที่ยืนยันแล้ว</h4>
+          <Completeness
+            total={data.submitted}
+            items={[
+              { label: "มีรูปถ่าย", value: data.withPhoto },
+              { label: "มีประวัติโดยย่อ", value: data.withBio },
+              { label: "มีช่องทางติดต่อ", value: data.withContacts }
+            ]}
+          />
+          {data.withoutPhoto > 0 && (
+            <p className="dash-hint">
+              มี {thai(data.withoutPhoto)} คนที่ต้องใช้ภาพคณะแทน — ทีมออกแบบต้องเตรียมภาพสำรองจำนวนเท่านี้
+            </p>
+          )}
+        </div>
+
+        <div className="dash-card">
+          <h4>รุ่นที่ตอบกลับมากที่สุด</h4>
+          <RankList items={data.topBatches} tone="ok" />
+          <h4 className="dash-gap">รุ่นที่ควรติดตาม</h4>
+          <RankList items={data.lowBatches} tone="warn" />
+        </div>
+      </div>
+
+      {/* รายรุ่น */}
+      <div className="dash-card">
+        <h4>ความคืบหน้ารายรุ่น</h4>
+        {batches.length ? <BatchBars batches={batches} /> : <p className="empty">ยังไม่มีข้อมูล</p>}
+      </div>
+
+      <div className="dash-card">
+        <h4>การนำเข้าล่าสุด</h4>
+        {data.lastImports?.length ? (
+          <table className="data-table">
+            <thead><tr><th>ไฟล์</th><th>โดย</th><th>เพิ่มใหม่</th><th>อัปเดต</th><th>ข้าม</th><th>เวลา</th></tr></thead>
+            <tbody>
+              {data.lastImports.map((job) => (
+                <tr key={job.jobId}>
+                  <td>{job.filename}{job.dryRun && <em> (ทดลอง)</em>}</td>
+                  <td>{job.uploadedByUsername}</td>
+                  <td>{thai(job.inserted)}</td>
+                  <td>{thai(job.updated)}</td>
+                  <td>{thai(job.skipped)}</td>
+                  <td>{formatTime(job.startedAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : <p className="empty">ยังไม่เคยนำเข้าไฟล์</p>}
+      </div>
+    </div>
+  );
+}
+
+/** Progress ring. Drawn with stroke-dasharray so it needs no chart library. */
+function Donut({ percent, label, caption }) {
+  const safe = Math.max(0, Math.min(100, Number(percent) || 0));
+  const radius = 66;
+  const circumference = 2 * Math.PI * radius;
+  return (
+    <div className="donut">
+      <svg viewBox="0 0 160 160" role="img" aria-label={`${label} ${safe}%`}>
+        <circle cx="80" cy="80" r={radius} className="donut-track" />
+        <circle
+          cx="80"
+          cy="80"
+          r={radius}
+          className="donut-value"
+          strokeDasharray={`${(circumference * safe) / 100} ${circumference}`}
+          transform="rotate(-90 80 80)"
+        />
+        <text x="80" y="74" className="donut-number">{safe}%</text>
+        <text x="80" y="98" className="donut-caption">{label}</text>
+      </svg>
+      <small>{caption}</small>
+    </div>
+  );
+}
+
+function StatusBar({ total, segments }) {
+  const safeTotal = total || 1;
+  return (
+    <div className="status-bar">
+      <div className="status-track">
+        {segments.map((segment) => segment.value > 0 && (
+          <div
+            key={segment.key}
+            className={`status-seg seg-${segment.tone}`}
+            style={{ width: `${(segment.value / safeTotal) * 100}%` }}
+            title={`${segment.label} ${segment.value}`}
+          />
+        ))}
+      </div>
+      <ul className="status-legend">
+        {segments.map((segment) => (
+          <li key={segment.key}>
+            <i className={`seg-${segment.tone}`} />
+            {segment.label}
+            <strong>{Number(segment.value || 0).toLocaleString("th-TH")}</strong>
+            <em>{Math.round((segment.value / safeTotal) * 100)}%</em>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function Kpi({ label, value, note }) {
+  return (
+    <div className="kpi">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{note}</small>
+    </div>
+  );
+}
+
+function Sparkline({ points }) {
+  const max = Math.max(1, ...points.map((item) => item.count));
+  return (
+    <div className="sparkline">
+      {points.map((item) => (
+        <div key={item.day} className="spark-col" title={`${item.day} — ${item.count} คน`}>
+          <div className="spark-bar" style={{ height: `${Math.max((item.count / max) * 100, item.count ? 6 : 2)}%` }} />
+          <small>{item.day.slice(8)}</small>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Completeness({ total, items }) {
+  const safeTotal = total || 1;
+  return (
+    <div className="completeness">
+      {items.map((item) => {
+        const percent = Math.round((item.value / safeTotal) * 100);
+        return (
+          <div key={item.label}>
+            <div className="completeness-head"><span>{item.label}</span><strong>{percent}%</strong></div>
+            <div className="mini-track"><div className="mini-fill" style={{ width: `${percent}%` }} /></div>
+            <small>{Number(item.value || 0).toLocaleString("th-TH")} จาก {Number(total || 0).toLocaleString("th-TH")} คน</small>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function RankList({ items, tone }) {
+  if (!items?.length) return <p className="empty">ยังไม่มีข้อมูลมากพอ</p>;
+  return (
+    <ol className={`rank-list rank-${tone}`}>
+      {items.map((item) => (
+        <li key={item.batch}>
+          <span>รุ่น {item.batch}</span>
+          <div className="mini-track"><div className="mini-fill" style={{ width: `${item.rate}%` }} /></div>
+          <strong>{item.rate}%</strong>
+          <small>{item.submitted}/{item.roster}</small>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function BatchBars({ batches }) {
+  const max = Math.max(1, ...batches.map((item) => item.roster));
+  return (
+    <div className="batch-bars">
+      {batches.map((item) => (
+        <div key={item.batch} className="batch-bar" title={`รุ่น ${item.batch} — ยืนยัน ${item.submitted} จาก ${item.roster} คน (${item.rate}%)`}>
+          <div className="batch-bar-track">
+            <div className="batch-bar-roster" style={{ height: `${(item.roster / max) * 100}%` }}>
+              <div className="batch-bar-done" style={{ height: `${item.rate}%` }} />
+            </div>
+          </div>
+          <small>{item.batch}</small>
+        </div>
+      ))}
     </div>
   );
 }
@@ -508,8 +694,7 @@ function DangerZone({ canReset }) {
         </div>
       ) : (
         <Alert tone="warn">
-          บัญชีของท่านเป็นผู้ดูแลระบบ จึงไม่มีสิทธิ์ล้างข้อมูล — กรุณาออกจากระบบแล้วเข้าใหม่ด้วย
-          <strong> บัญชีเจ้าของระบบ</strong> เพื่อใช้งานส่วนนี้
+          บัญชีของท่านไม่มีสิทธิ์ล้างข้อมูล — ทำได้เฉพาะเจ้าของระบบและผู้ดูแลระบบเท่านั้น
         </Alert>
       )}
       <Alert>{message}</Alert>
@@ -574,6 +759,161 @@ function ImportReport({ job, title, tone }) {
             {job.errors.map((item) => <li key={item.rowNumber}>แถวที่ {item.rowNumber}: {item.errors.join(", ")}</li>)}
           </ul>
         </details>
+      )}
+    </div>
+  );
+}
+
+/* --------------------- ส่งมอบงานออกแบบ (design handoff) ------------------- */
+
+function HandoffPanel({ user }) {
+  const scoped = user.batchScope?.length ? user.batchScope.join(", ") : "";
+  const [batchInput, setBatchInput] = useState(scoped);
+  const [applied, setApplied] = useState(scoped);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [zipProgress, setZipProgress] = useState(null);
+
+  const { loading, data, error, reload } = useAsync(
+    () => api(`/api/admin/handoff/summary${applied.trim() ? `?batch=${encodeURIComponent(applied.trim())}` : ""}`),
+    [applied]
+  );
+
+  const query = applied.trim() ? `?batch=${encodeURIComponent(applied.trim())}` : "";
+  const thai = (value) => Number(value || 0).toLocaleString("th-TH");
+  const mb = (bytes) => `${(Number(bytes || 0) / 1024 / 1024).toFixed(1)} MB`;
+
+  async function grab(path, filename) {
+    setBusy(true);
+    setMessage("");
+    try {
+      await download(path, filename);
+    } catch (downloadError) {
+      setMessage(downloadError.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Download every batch archive one after another — never one huge response. */
+  async function grabAllPhotos() {
+    const batches = (data?.batches || []).filter((item) => item.photos > 0);
+    if (!batches.length) return setMessage("ยังไม่มีรูปถ่ายให้ดาวน์โหลด");
+    setBusy(true);
+    setMessage("");
+    try {
+      for (const [index, item] of batches.entries()) {
+        setZipProgress({ done: index, total: batches.length, batch: item.batch });
+        await download(`/api/admin/handoff/photos.zip?batch=${item.batch}`, `yearbook-2569-photos-batch-${item.batch}.zip`);
+      }
+      setZipProgress({ done: batches.length, total: batches.length });
+      setMessage(`ดาวน์โหลดรูปครบทั้ง ${batches.length} รุ่นแล้ว`);
+    } catch (downloadError) {
+      setMessage(`หยุดกลางคัน: ${downloadError.message} — กดดาวน์โหลดรุ่นที่เหลือทีละรุ่นได้`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const totals = data?.totals;
+
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <h3>ส่งมอบงานให้ทีมออกแบบ</h3>
+        <button className="ghost" onClick={reload}><RefreshCw /> รีเฟรช</button>
+      </div>
+      <p className="panel-note">
+        ชุดส่งมอบมีเฉพาะผู้ที่ <strong>ยืนยันลงหนังสือแล้ว</strong> เท่านั้น — คนที่ยังไม่ตอบหรือไม่ประสงค์ลงจะไม่ถูกรวม
+        <br />
+        ชื่อไฟล์รูปตรงกับคอลัมน์ <strong>ไฟล์รูป</strong> ในไฟล์ข้อมูล ทีมออกแบบจึงวางรูปอัตโนมัติด้วย InDesign Data Merge ได้เลย ไม่ต้องจับคู่เอง
+      </p>
+
+      <form className="filters" onSubmit={(event) => { event.preventDefault(); setApplied(batchInput); }}>
+        <Field
+          label="เลือกรุ่น (เว้นว่าง = ทุกรุ่น)"
+          value={batchInput}
+          setValue={setBatchInput}
+          placeholder="เช่น 45, 46, 47"
+          hint="(หลายรุ่นคั่นด้วยจุลภาค)"
+        />
+        <button className="next compact-btn">ใช้เงื่อนไขนี้</button>
+      </form>
+
+      <Alert>{message || error}</Alert>
+
+      {loading ? <p className="console-loading">กำลังรวบรวมข้อมูล…</p> : (
+        <>
+          <div className="stat-cards">
+            <div><span>ยืนยันลงหนังสือ</span><strong>{thai(totals?.people)}</strong></div>
+            <div><span>ส่งรูปถ่ายแล้ว</span><strong>{thai(totals?.photos)}</strong></div>
+            <div><span>ใช้ภาพคณะแทน</span><strong>{thai(totals?.placeholders)}</strong></div>
+            <div><span>ขนาดรูปรวม</span><strong>{mb(totals?.bytes)}</strong></div>
+          </div>
+
+          <h4>ขั้นที่ 1 — ไฟล์ข้อมูล</h4>
+          <div className="button-row">
+            <button className="next compact-btn" disabled={busy || !totals?.people} onClick={() => grab(`/api/admin/handoff/data.xlsx${query}`, "ข้อมูลนิสิตเก่า.xlsx")}>
+              <Download /> ไฟล์ข้อมูล (Excel)
+            </button>
+            <button className="ghost" disabled={busy || !totals?.people} onClick={() => grab(`/api/admin/handoff/data-merge.csv${query}`, "data-merge.csv")}>
+              <Download /> data-merge.csv (สำหรับ InDesign)
+            </button>
+            <button className="ghost" disabled={busy} onClick={() => grab(`/api/admin/handoff/readme.txt${query}`, "อ่านก่อน-README.txt")}>
+              <FileText /> คู่มือสำหรับทีมออกแบบ
+            </button>
+          </div>
+
+          <h4>ขั้นที่ 2 — รูปถ่าย (แยกตามรุ่น)</h4>
+          <p className="panel-note">
+            แยกเป็นไฟล์ละรุ่นโดยตั้งใจ เพราะรูปทั้งหมดรวมกันมีขนาดหลายกิกะไบต์ ซึ่งใหญ่เกินกว่าจะดาวน์โหลดในครั้งเดียวได้อย่างมั่นคง
+            <br />
+            แตกไฟล์ ZIP ของทุกรุ่นลงในโฟลเดอร์เดียวกัน โครงสร้าง <code>photos/batch-NN/</code> จะรวมกันเองอัตโนมัติ
+          </p>
+          <div className="button-row">
+            <button className="next compact-btn" disabled={busy || !totals?.photos} onClick={grabAllPhotos}>
+              <Download /> ดาวน์โหลดรูปทุกรุ่นเรียงต่อกัน
+            </button>
+          </div>
+          {zipProgress && (
+            <div className="progress-panel">
+              <div className="progress-head">
+                <strong>{zipProgress.done >= zipProgress.total ? "ดาวน์โหลดรูปครบแล้ว" : `กำลังดาวน์โหลดรูปรุ่น ${zipProgress.batch}`}</strong>
+                <span>{zipProgress.done} / {zipProgress.total} รุ่น</span>
+              </div>
+              <div className="progress-track">
+                <div className="progress-fill" style={{ width: `${Math.round((zipProgress.done / zipProgress.total) * 100)}%` }} />
+              </div>
+            </div>
+          )}
+
+          <table className="data-table">
+            <thead>
+              <tr><th>รุ่น</th><th>ยืนยันแล้ว</th><th>มีรูป</th><th>ใช้ภาพคณะ</th><th>ขนาดรูป</th><th>ดาวน์โหลด</th></tr>
+            </thead>
+            <tbody>
+              {(data?.batches || []).map((item) => (
+                <tr key={item.batch}>
+                  <td>รุ่น {item.batch}</td>
+                  <td>{thai(item.people)}</td>
+                  <td>{thai(item.photos)}</td>
+                  <td>{item.placeholders ? <span className="warn-count">{thai(item.placeholders)}</span> : "—"}</td>
+                  <td>{item.photos ? mb(item.bytes) : "—"}</td>
+                  <td>
+                    <button
+                      className="row-download"
+                      disabled={busy || !item.photos}
+                      onClick={() => grab(`/api/admin/handoff/photos.zip?batch=${item.batch}`, `yearbook-2569-photos-batch-${item.batch}.zip`)}
+                    >
+                      <Download /> รูปรุ่น {item.batch}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!data?.batches?.length && <tr><td colSpan="6" className="empty">ยังไม่มีผู้ยืนยันลงหนังสือ</td></tr>}
+            </tbody>
+          </table>
+        </>
       )}
     </div>
   );
