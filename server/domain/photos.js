@@ -9,11 +9,71 @@ import { badRequest } from "../lib/http.js";
 /** Formats accepted after decoding — the client-declared MIME type is not trusted. */
 const ACCEPTED_FORMATS = ["jpeg", "jpg", "png", "webp", "heif", "heic", "avif"];
 
+/* ------------------------- print-ready photo policy ----------------------- */
+
+/** Offset printing standard. Everything below is expressed against this. */
+const PRINT_DPI = 300;
+
 /**
- * Normalize an uploaded photo entirely in memory: honour the EXIF orientation,
- * strip metadata, fit inside 1600x1600 and re-encode as JPEG. Working from the
- * buffer (rather than a temp file) is what makes this work inside Cloud
- * Functions, where the filesystem is read-only apart from /tmp.
+ * 2000 px on the long edge = 169 mm at 300 dpi, which covers a half-page
+ * portrait with room to crop. Yearbook grid portraits are 35-60 mm, so this is
+ * generous rather than tight — going larger mostly adds storage cost.
+ */
+const MAX_EDGE = Number(process.env.PHOTO_MAX_EDGE || 2000);
+
+/** 90 with 4:4:4 chroma is the usual floor for offset print without visible artefacts. */
+const JPEG_QUALITY = Number(process.env.PHOTO_JPEG_QUALITY || 90);
+
+/** Below this the photo prints soft at a normal portrait size — flagged, not rejected. */
+const MIN_PRINT_EDGE = Number(process.env.PHOTO_MIN_EDGE || 700);
+
+/** Smaller than this cannot be printed acceptably at any size. */
+const REJECT_EDGE = 250;
+
+export const printPolicy = { dpi: PRINT_DPI, maxEdge: MAX_EDGE, quality: JPEG_QUALITY, minEdge: MIN_PRINT_EDGE };
+
+const mm = (pixels) => Math.round((pixels / PRINT_DPI) * 25.4);
+
+/**
+ * Write the print resolution into the JPEG's JFIF header.
+ *
+ * sharp's `withMetadata({ density })` would do this, but it also copies the
+ * source EXIF back in — including the GPS coordinates a phone camera embeds,
+ * which is exactly what must not reach the design team. So the pipeline strips
+ * all metadata and the density header is inserted here instead. No re-encode,
+ * so there is no extra generation loss.
+ */
+export function withPrintDensity(buffer, dpi = PRINT_DPI) {
+  if (buffer[0] !== 0xff || buffer[1] !== 0xd8) return buffer;
+
+  if (buffer[2] === 0xff && buffer[3] === 0xe0 && buffer.toString("latin1", 6, 10) === "JFIF") {
+    const patched = Buffer.from(buffer);
+    patched[13] = 1; // units: dots per inch
+    patched.writeUInt16BE(dpi, 14);
+    patched.writeUInt16BE(dpi, 16);
+    return patched;
+  }
+
+  const app0 = Buffer.alloc(18);
+  app0.writeUInt16BE(0xffe0, 0); // APP0 marker
+  app0.writeUInt16BE(16, 2); // segment length
+  app0.write("JFIF\0", 4, "latin1");
+  app0[9] = 1; // version 1.02
+  app0[10] = 2;
+  app0[11] = 1; // units: dots per inch
+  app0.writeUInt16BE(dpi, 12);
+  app0.writeUInt16BE(dpi, 14);
+  return Buffer.concat([buffer.subarray(0, 2), app0, buffer.subarray(2)]);
+}
+
+/**
+ * Normalize an uploaded photo for print, entirely in memory.
+ *
+ * Straighten by EXIF, strip every metadata tag (a phone photo carries the GPS
+ * coordinates of where it was taken), convert to sRGB, fit inside the print
+ * ceiling and re-encode as 4:4:4 JPEG with a 300 dpi header. Working from the
+ * buffer rather than a temp file is what makes this run inside Cloud Functions,
+ * where the filesystem is read-only apart from /tmp.
  */
 export async function normalizePhoto(file) {
   if (!file?.buffer?.length) throw badRequest("ไม่พบไฟล์รูปภาพ");
@@ -33,13 +93,49 @@ export async function normalizePhoto(file) {
   }
   if (!metadata.width || !metadata.height) throw badRequest("ไฟล์รูปภาพไม่สมบูรณ์");
 
+  // EXIF orientation swaps the reported dimensions for sideways photos.
+  const upright = (metadata.orientation || 0) >= 5;
+  const sourceWidth = upright ? metadata.height : metadata.width;
+  const sourceHeight = upright ? metadata.width : metadata.height;
+  if (Math.min(sourceWidth, sourceHeight) < REJECT_EDGE) {
+    throw badRequest(`รูปมีความละเอียดต่ำเกินกว่าจะพิมพ์ได้ (${sourceWidth}x${sourceHeight} พิกเซล) กรุณาใช้รูปที่ด้านสั้นอย่างน้อย ${MIN_PRINT_EDGE} พิกเซล`);
+  }
+
   try {
-    const buffer = await image
-      .rotate()
-      .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
-      .jpeg({ quality: 88, mozjpeg: true })
+    const encoded = await image
+      .rotate() // apply EXIF orientation, then drop the tag
+      .resize({ width: MAX_EDGE, height: MAX_EDGE, fit: "inside", withoutEnlargement: true })
+      // Phone cameras often shoot Display P3; printers expect a known space.
+      .toColorspace("srgb")
+      .jpeg({
+        quality: JPEG_QUALITY,
+        // 4:4:4 keeps full colour resolution. The default 4:2:0 shows colour
+        // fringing on edges once a photo is printed rather than viewed on screen.
+        chromaSubsampling: "4:4:4",
+        mozjpeg: true
+      })
       .toBuffer();
-    return { buffer, width: metadata.width, height: metadata.height, mimeType: "image/jpeg" };
+
+    const buffer = withPrintDensity(encoded);
+    const output = await sharp(buffer).metadata();
+    const shortEdge = Math.min(output.width, output.height);
+
+    return {
+      buffer,
+      width: output.width,
+      height: output.height,
+      mimeType: "image/jpeg",
+      print: {
+        dpi: PRINT_DPI,
+        widthMm: mm(output.width),
+        heightMm: mm(output.height),
+        // "low" means it will look soft at a normal portrait size — the design
+        // team gets this list up front instead of discovering it at proofing.
+        quality: shortEdge >= MIN_PRINT_EDGE ? "ok" : "low",
+        sourceWidth,
+        sourceHeight
+      }
+    };
   } catch (error) {
     throw badRequest(`ประมวลผลรูปภาพไม่สำเร็จ (${error.message})`);
   }
@@ -70,6 +166,7 @@ export async function storePhoto(record, normalized) {
       width: normalized.width,
       height: normalized.height,
       bytes: normalized.buffer.length,
+      print: normalized.print || null,
       updatedAt: new Date().toISOString()
     };
   }
@@ -93,6 +190,7 @@ export async function storePhoto(record, normalized) {
     width: normalized.width,
     height: normalized.height,
     bytes: normalized.buffer.length,
+    print: normalized.print || null,
     updatedAt: new Date().toISOString()
   };
 }

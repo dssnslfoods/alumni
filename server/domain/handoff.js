@@ -48,6 +48,7 @@ export function buildHandoffRows(records) {
       firstName,
       lastName,
       hasPhoto,
+      lowResolution: hasPhoto && record.photo?.print?.quality === "low",
       // Relative to the package root, so unzipping several batches side by side
       // keeps every path in the data file valid.
       photoPath: hasPhoto ? `photos/${photoFolder(record.batch)}/${code}-${fileSafe(firstName)}-${fileSafe(lastName)}.jpg` : ""
@@ -117,6 +118,8 @@ const LAYOUT_COLUMNS = [
   ["ช่องทางติดต่อรวม", (row) => contactText(row.record), 44],
   ["จำนวนช่องทางติดต่อ", (row) => (row.record.contacts || []).length, 20],
   ["มีรูป", (row) => (row.hasPhoto ? "มี" : "ไม่มี — ใช้ภาพคณะแทน"), 20],
+  ["ขนาดพิมพ์สูงสุด", (row) => (row.hasPhoto && row.record.photo?.print ? `${row.record.photo.print.widthMm} x ${row.record.photo.print.heightMm} มม.` : ""), 20],
+  ["คุณภาพงานพิมพ์", (row) => (!row.hasPhoto ? "" : row.lowResolution ? "ความละเอียดต่ำ" : "ปกติ"), 18],
   ["ไฟล์รูป", (row) => row.photoPath, 46]
 ];
 
@@ -179,6 +182,25 @@ export async function buildHandoffWorkbook(rows, { generatedBy, generatedAt } = 
   }));
   missing.getRow(1).font = { bold: true };
 
+  const lowRes = workbook.addWorksheet("รูปความละเอียดต่ำ");
+  lowRes.columns = [
+    { header: "ลำดับ", key: "code", width: 12 },
+    { header: "รุ่น", key: "batch", width: 8 },
+    { header: "ชื่อ-นามสกุล", key: "name", width: 30 },
+    { header: "ขนาดไฟล์ (พิกเซล)", key: "px", width: 20 },
+    { header: "พิมพ์ได้สูงสุด", key: "mm", width: 20 },
+    { header: "ไฟล์รูป", key: "file", width: 46 }
+  ];
+  rows.filter((row) => row.lowResolution).forEach((row) => lowRes.addRow({
+    code: row.code,
+    batch: row.record.batch,
+    name: `${row.firstName} ${row.lastName}`,
+    px: `${row.record.photo.width} x ${row.record.photo.height}`,
+    mm: `${row.record.photo.print.widthMm} x ${row.record.photo.print.heightMm} มม.`,
+    file: row.photoPath
+  }));
+  lowRes.getRow(1).font = { bold: true };
+
   const info = workbook.addWorksheet("ข้อมูลชุดส่งมอบ");
   info.columns = [{ width: 26 }, { width: 60 }];
   [
@@ -187,6 +209,8 @@ export async function buildHandoffWorkbook(rows, { generatedBy, generatedAt } = 
     ["จำนวนคนทั้งหมด", summary.totals.people],
     ["มีรูป", summary.totals.photos],
     ["ใช้ภาพคณะแทน", summary.totals.placeholders],
+    ["รูปความละเอียดต่ำ", rows.filter((row) => row.lowResolution).length],
+    ["ความละเอียดรูป", "ทุกไฟล์ฝัง 300 dpi ไว้แล้ว วางใน InDesign จะได้ขนาดจริงทันที"],
     ["คอลัมน์ไฟล์รูป", "ตรงกับ path ในโฟลเดอร์ photos/ ของไฟล์ ZIP รูปภาพ"],
     ["หมายเหตุ", "ไฟล์นี้ไม่มีเลขบัตรประชาชนและไม่มีอีเมล/เบอร์โทรที่ใช้ติดตามงานภายใน"]
   ].forEach((pair) => info.addRow(pair));
@@ -261,7 +285,13 @@ export function buildReadme(rows, { generatedBy, generatedAt, batches } = {}) {
     "  ช่องที่เจ้าตัวไม่ได้ให้ไว้จะเว้นว่าง ให้ซ่อนกรอบนั้นในเลย์เอาต์",
     "* คนที่ไม่มีรูป ช่องไฟล์รูปจะว่าง ให้ใช้ภาพคณะแทนตามที่เจ้าตัวเลือกไว้",
     "  รายชื่อทั้งหมดดูได้ในชีต ต้องใช้ภาพคณะแทน",
-    "* รูปถูกปรับขนาดไม่เกิน 1600x1600 พิกเซล และหมุนตาม EXIF มาแล้ว",
+    "* รูปทุกไฟล์ผ่านการเตรียมสำหรับงานพิมพ์มาแล้ว:",
+    "    - หมุนตาม EXIF ให้ตั้งตรง และย่อให้ด้านยาวไม่เกิน 2000 พิกเซล",
+    "    - ฝังความละเอียด 300 dpi ไว้ในไฟล์ วางใน InDesign จะได้ขนาดจริงทันที",
+    "    - แปลงเป็น sRGB และใช้ chroma 4:4:4 เพื่อไม่ให้ขอบสีเพี้ยนตอนพิมพ์",
+    "    - ลบ metadata ทั้งหมดรวมถึงพิกัด GPS ที่กล้องมือถือฝังมา",
+    "* รายชื่อที่รูปความละเอียดต่ำกว่าเกณฑ์อยู่ในชีต รูปความละเอียดต่ำ",
+    "  ยังใช้ได้ในกรอบเล็ก แต่ไม่ควรขยายใหญ่",
     "* หากตัวอักษรไทยใน CSV เพี้ยน ให้เปิดด้วย Excel แล้วบันทึกใหม่เป็น UTF-16",
     "",
     "ข้อมูลส่วนบุคคล (PDPA)",

@@ -155,7 +155,14 @@ router.post("/submit", multipartBody({ maxFiles: 1 }), route(async (req, res) =>
   await saveAlumni(record.id, patch);
   await syncSubmission({ ...record, ...patch });
   await audit(req, "public.submit", { targetType: "alumni", targetId: record.id, meta: { photoChoice, contactTypes: contacts.map((item) => item.type) } });
-  res.json({ ok: true, photoUrl: photo?.downloadUrl || "" });
+  res.json({
+    ok: true,
+    photoUrl: photo?.downloadUrl || "",
+    // Sent back so the browser can show what the optimiser actually produced.
+    photo: photo?.choice === "upload"
+      ? { width: photo.width, height: photo.height, bytes: photo.bytes, print: photo.print || null }
+      : null
+  });
 }));
 
 export default router;

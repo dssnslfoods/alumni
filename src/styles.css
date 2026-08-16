@@ -207,3 +207,103 @@ header strong,header span { display:block; } header strong { font-size:1.03rem; 
   .dash-grid { grid-template-columns:1fr; }
   .rank-list li { grid-template-columns:56px 1fr 42px 52px; }
 }
+
+/* ---------- คำเตือนความละเอียดรูปสำหรับงานพิมพ์ ---------- */
+.photo-warning { margin-top:12px; padding:13px 15px; color:#7a6413; background:#fbf3dd; border-left:4px solid var(--gold); line-height:1.7; }
+
+/* ================= Responsive: tablet และ mobile ================= */
+
+/* กันไม่ให้อะไรดันจอกว้างเกินในทุกขนาดหน้าจอ */
+.console, .dashboard, .panel, .dash-card, .dash-hero, .dash-head { max-width:100%; min-width:0; }
+.console *, .dashboard * { min-width:0; }
+.data-table, .batch-bars, .sparkline { max-width:100%; }
+
+/* ---- แท็บ: เลื่อนแนวนอนแทนการตัดบรรทัด ---- */
+@media (max-width:1024px) {
+  .console-tabs { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:thin; -webkit-overflow-scrolling:touch; }
+  .console-tabs button { flex:0 0 auto; white-space:nowrap; }
+}
+
+/* ---- Tablet ---- */
+@media (max-width:1024px) {
+  .console { width:calc(100% - 32px); }
+  .dash-hero { grid-template-columns:200px 1fr; gap:20px; padding:20px; }
+  .donut svg { width:160px; height:160px; }
+  .kpi-row { grid-template-columns:repeat(2,1fr); }
+  .dash-grid { grid-template-columns:1fr; }
+}
+
+/* ---- Mobile ---- */
+@media (max-width:600px) {
+  .console { width:calc(100% - 20px); }
+  .console-head { padding:16px; gap:12px; }
+  .console-head h2 { font-size:1.35rem; }
+  .console-actions { width:100%; }
+  .console-actions button { flex:1; justify-content:center; min-height:40px; padding:0 10px; font-size:.88rem; }
+  .console-tabs { margin:14px -10px 18px; padding:0 10px; }
+  .console-tabs button { min-height:42px; padding:0 12px; font-size:.9rem; }
+
+  .dash-head, .dash-card, .panel { padding:16px; }
+  .dash-head h3, .dash-card h4 { font-size:1.05rem; }
+  .dashboard { gap:12px; }
+
+  .dash-hero { grid-template-columns:1fr; justify-items:stretch; padding:18px 16px; gap:16px; }
+  .donut { justify-self:center; }
+  .donut svg { width:150px; height:150px; }
+  .donut-number { font-size:2rem; }
+
+  .status-track { height:20px; }
+  .status-legend { gap:8px 16px; }
+  .status-legend li { font-size:.88rem; }
+
+  .kpi-row { grid-template-columns:repeat(2,1fr); gap:8px; }
+  .kpi { padding:10px 12px; }
+  .kpi span { font-size:.78rem; }
+  .kpi strong { font-size:1.2rem; }
+  .kpi small { font-size:.72rem; }
+
+  .sparkline { height:100px; gap:3px; }
+  .spark-col small { font-size:.62rem; }
+
+  .rank-list li { grid-template-columns:52px 1fr 40px; gap:8px; font-size:.86rem; }
+  .rank-list small { display:none; }
+
+  .batch-bars { height:120px; }
+  .batch-bar { flex:0 0 18px; }
+
+  .stat-cards { grid-template-columns:repeat(2,1fr); gap:8px; }
+  .stat-cards div { padding:11px; }
+  .stat-cards strong { font-size:1.3rem; }
+
+  .filters { flex-direction:column; align-items:stretch; gap:10px; }
+  .filters .field, .filters .compact-btn { width:100%; min-width:0; }
+  .button-row { flex-direction:column; }
+  .button-row button { width:100%; }
+  .pager { flex-direction:column; align-items:stretch; gap:10px; text-align:center; }
+  .pager-buttons { justify-content:space-between; }
+  .pager-buttons button { flex:1; }
+  .form-grid { grid-template-columns:1fr; }
+  .dash-hint, .panel-note { font-size:.88rem; }
+  .row-download { width:100%; justify-content:center; }
+}
+
+/* ---------- สถานะการเตรียมรูปสำหรับงานพิมพ์ ---------- */
+.photo-status { margin-top:12px; padding:15px 17px; border:1px solid #d5e2cf; background:#f4f9f1; }
+.photo-status-row { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; padding:5px 0; }
+.photo-status-row span { color:var(--muted); font-size:.92rem; }
+.photo-status-row strong { color:var(--deep); font-size:.95rem; }
+.photo-status-list { margin:10px 0 8px; padding-left:20px; color:var(--muted); font-size:.88rem; line-height:1.8; }
+.photo-status-list li::marker { color:var(--green); }
+.photo-status > small { color:#7b8a78; font-size:.85rem; }
+
+.upload-status { display:flex; align-items:center; gap:14px; margin-top:22px; padding:15px 17px; border-left:4px solid var(--green); background:#f2f8f0; }
+.upload-status strong { display:block; color:var(--deep); }
+.upload-status small { display:block; margin-top:4px; color:var(--muted); font-size:.86rem; line-height:1.6; }
+.upload-spinner { flex:0 0 auto; width:22px; height:22px; border:3px solid #cfe0c8; border-top-color:var(--green); border-radius:50%; animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce) { .upload-spinner { animation-duration:2.4s; } }
+
+.photo-done { display:grid; gap:5px; max-width:520px; margin:18px auto 0; padding:14px 16px; border:1px solid #d5e2cf; background:#f4f9f1; text-align:center; }
+.photo-done strong { color:var(--deep); }
+.photo-done span { color:var(--muted); font-size:.9rem; line-height:1.6; }
+.photo-done em { color:#7a6413; font-style:normal; font-size:.86rem; }

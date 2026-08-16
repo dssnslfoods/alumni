@@ -336,29 +336,22 @@ function BatchBars({ batches }) {
 
 function AlumniTable({ user }) {
   const scoped = user.batchScope?.length ? user.batchScope : null;
-  const [settings, setSettings] = useState({ maxBatch: 88 });
-  const [batch, setBatch] = useState(scoped ? String(scoped[0]) : "");
+  const [batch, setBatch] = useState(scoped ? scoped.join(", ") : "");
   const [status, setStatus] = useState("");
   const [query, setQuery] = useState("");
-  const [applied, setApplied] = useState({ batch: scoped ? String(scoped[0]) : "", status: "", query: "" });
+  const [applied, setApplied] = useState({ batch: scoped ? scoped.join(", ") : "", status: "", query: "" });
   const [message, setMessage] = useState("");
   const [pageSize, setPageSize] = useState(200);
   const [offset, setOffset] = useState(0);
 
-  useEffect(() => {
-    api("/api/public/settings", { auth: false }).then(setSettings).catch(() => {});
-  }, []);
-
-  const batchOptions = scoped || Array.from({ length: settings.maxBatch }, (_, index) => index + 1);
-
   // Nothing is fetched until the administrator narrows the view. With 10,000+
   // records, loading "everything" by default is slow and rarely what is wanted.
-  const criteriaReady = Boolean(applied.batch) || applied.query.trim().length >= 2;
+  const criteriaReady = Boolean(applied.batch.trim()) || applied.query.trim().length >= 2;
 
   const { loading, data, error, reload } = useAsync(() => {
     if (!criteriaReady) return Promise.resolve(null);
     const params = new URLSearchParams();
-    if (applied.batch) params.set("batch", applied.batch);
+    if (applied.batch.trim()) params.set("batch", applied.batch.trim());
     if (applied.status) params.set("status", applied.status);
     if (applied.query.trim()) params.set("q", applied.query.trim());
     params.set("limit", String(pageSize));
@@ -391,8 +384,8 @@ function AlumniTable({ user }) {
       </div>
 
       <p className="panel-note">
-        เลือก<strong>รุ่น</strong> หรือพิมพ์<strong>ชื่อ/รหัสนิสิต</strong>อย่างน้อย 2 ตัวอักษร แล้วกดค้นหา —
-        ระบบจะดึงเฉพาะข้อมูลที่ตรงเงื่อนไข ไม่ดึงทั้งฐานข้อมูลขึ้นมา
+        พิมพ์<strong>รุ่น</strong> (หลายรุ่นได้ คั่นด้วยจุลภาค เช่น <code>45, 46, 47</code>) หรือพิมพ์<strong>ชื่อ/รหัสนิสิต</strong>อย่างน้อย 2 ตัวอักษร
+        แล้วกดค้นหา — ระบบจะดึงเฉพาะข้อมูลที่ตรงเงื่อนไข ไม่ดึงทั้งฐานข้อมูลขึ้นมา
       </p>
 
       <form
@@ -403,12 +396,14 @@ function AlumniTable({ user }) {
           setApplied({ batch, status, query });
         }}
       >
-        <label className="field"><span>รุ่น</span>
-          <select value={batch} onChange={(event) => setBatch(event.target.value)}>
-            {!scoped && <option value="">— เลือกรุ่น —</option>}
-            {batchOptions.map((item) => <option key={item} value={item}>รุ่น {item}</option>)}
-          </select>
-        </label>
+        <Field
+          label="รุ่น"
+          value={batch}
+          setValue={setBatch}
+          placeholder={scoped ? scoped.join(", ") : "เช่น 45 หรือ 45, 46, 47"}
+          hint="(หลายรุ่นคั่นด้วยจุลภาค)"
+          inputMode="numeric"
+        />
         <label className="field"><span>สถานะ</span>
           <select value={status} onChange={(event) => setStatus(event.target.value)}>
             <option value="">ทุกสถานะ</option>
@@ -421,7 +416,7 @@ function AlumniTable({ user }) {
             {[100, 200, 500, 1000].map((size) => <option key={size} value={size}>{size} รายการ</option>)}
           </select>
         </label>
-        <button className="next compact-btn" disabled={!batch && query.trim().length < 2}>ค้นหา</button>
+        <button className="next compact-btn" disabled={!batch.trim() && query.trim().length < 2}>ค้นหา</button>
       </form>
 
       <Alert>{error}</Alert>

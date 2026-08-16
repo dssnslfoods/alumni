@@ -3,6 +3,8 @@ import { ArrowRight, Check, ChevronLeft, Facebook, ImagePlus, Instagram, Landmar
 import { Alert, Field, Review, Shell } from "../components/Shell.jsx";
 import { api } from "../lib/api.js";
 
+const MAX_PHOTO_EDGE = 2000;
+
 const steps = ["ความประสงค์", "ค้นหารายชื่อ", "ยืนยันตัวตน", "ข้อมูลหนังสือ", "รูปและติดต่อ", "ยืนยันส่ง"];
 const contactOptions = [
   ["facebook", "Facebook", Facebook],
@@ -26,6 +28,10 @@ export function Yearbook() {
   const [lastName, setLastName] = useState("");
   const [photoChoice, setPhotoChoice] = useState("upload");
   const [photo, setPhoto] = useState(null);
+  const [photoWarning, setPhotoWarning] = useState("");
+  const [photoInfo, setPhotoInfo] = useState(null);
+  const [uploadStage, setUploadStage] = useState("");
+  const [photoResult, setPhotoResult] = useState(null);
   const [selectedContacts, setSelectedContacts] = useState([]);
   const [contactValues, setContactValues] = useState({ facebook: "", instagram: "", line: "", phone: "" });
   const [bio, setBio] = useState("");
@@ -87,6 +93,45 @@ export function Yearbook() {
     });
   };
 
+  /**
+   * Check the pixel size before uploading. A photo that is fine on screen can
+   * still print soft, and telling the alumnus now is far better than the design
+   * team discovering it at proofing when nobody can retake the shot.
+   */
+  function choosePhoto(file) {
+    setPhoto(file);
+    setPhotoWarning("");
+    setPhotoInfo(null);
+    setPhotoResult(null);
+    if (!file) return;
+
+    const url = URL.createObjectURL(file);
+    const probe = new Image();
+    probe.onload = () => {
+      const { width, height } = probe;
+      const shortEdge = Math.min(width, height);
+      // Mirror of the server's rule, so the preview matches the real result.
+      const scale = Math.min(MAX_PHOTO_EDGE / Math.max(width, height), 1);
+      setPhotoInfo({
+        width,
+        height,
+        bytes: file.size,
+        targetWidth: Math.round(width * scale),
+        targetHeight: Math.round(height * scale),
+        willResize: scale < 1
+      });
+      if (shortEdge < 700) {
+        setPhotoWarning(
+          `รูปนี้มีความละเอียด ${width}x${height} พิกเซล ซึ่งค่อนข้างต่ำสำหรับงานพิมพ์ ` +
+          "ส่งได้แต่เมื่อพิมพ์อาจไม่คมชัด หากมีไฟล์ต้นฉบับที่ใหญ่กว่านี้แนะนำให้ใช้ไฟล์นั้นแทน"
+        );
+      }
+      URL.revokeObjectURL(url);
+    };
+    probe.onerror = () => URL.revokeObjectURL(url);
+    probe.src = url;
+  }
+
   const submit = (event) => {
     event.preventDefault();
     if (pdpa !== "yes") return setNotice("กรุณาเลือก “ยินยอม” เพื่ออนุญาตให้ใช้ข้อมูลในหนังสืออนุสรณ์");
@@ -103,7 +148,10 @@ export function Yearbook() {
     if (photo) body.append("photo", photo);
 
     return run(async () => {
-      await api("/api/public/submit", { method: "POST", auth: false, headers: { "x-submit-token": submitToken }, body });
+      setUploadStage(photo ? "uploading" : "saving");
+      const result = await api("/api/public/submit", { method: "POST", auth: false, headers: { "x-submit-token": submitToken }, body });
+      setUploadStage("");
+      setPhotoResult(result.photo || null);
       move(6);
     });
   };
@@ -116,6 +164,18 @@ export function Yearbook() {
           <p className="kicker">ส่งข้อมูลสำเร็จ</p>
           <h1>ขอบพระคุณครับ</h1>
           <p>ระบบบันทึกข้อมูลสำหรับหนังสืออนุสรณ์เรียบร้อยแล้ว ท่านสามารถตรวจสอบความถูกต้องกับตัวแทนรุ่นของท่านได้ในภายหลัง</p>
+          {photoResult && (
+            <div className="photo-done">
+              <strong>รูปถ่ายของท่านถูกปรับให้พร้อมพิมพ์แล้ว</strong>
+              <span>
+                {photoResult.width} x {photoResult.height} พิกเซล · {(photoResult.bytes / 1024).toFixed(0)} KB
+                {photoResult.print && ` · พิมพ์ได้ ${photoResult.print.widthMm} x ${photoResult.print.heightMm} มม. ที่ ${photoResult.print.dpi} dpi`}
+              </span>
+              {photoResult.print?.quality === "low" && (
+                <em>หมายเหตุ: ความละเอียดค่อนข้างต่ำ หากมีไฟล์ที่ใหญ่กว่านี้สามารถส่งใหม่ได้</em>
+              )}
+            </div>
+          )}
           <a href="/">ทำรายการใหม่</a>
         </section>
       </Shell>
@@ -236,6 +296,7 @@ export function Yearbook() {
                 <li>พื้นหลังเรียบ แสงเพียงพอ</li>
                 <li>ไม่เบลอ และไม่มีสิ่งบังใบหน้า</li>
                 <li>JPG, PNG, WEBP หรือ HEIC ไม่เกิน 10 MB</li>
+                <li>ควรมีความละเอียดด้านสั้นอย่างน้อย 700 พิกเซล เพื่อให้พิมพ์ออกมาคมชัด</li>
               </ul>
             </div>
           </div>
@@ -247,10 +308,33 @@ export function Yearbook() {
             <label className="file-drop">
               <Upload />
               <strong>{photo?.name || (alum?.photo?.downloadUrl ? "มีรูปเดิมอยู่แล้ว — กดเพื่อเปลี่ยนรูป" : "กดเพื่อเลือกรูปภาพ")}</strong>
-              <small>ชื่อไฟล์จะถูกจัดเก็บอ้างอิงจากรหัสนิสิตของท่าน</small>
-              <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" onChange={(event) => setPhoto(event.target.files?.[0] || null)} />
+              <small>ระบบจะย่อและปรับไฟล์ให้พร้อมพิมพ์ 300 dpi ให้อัตโนมัติ</small>
+              <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" onChange={(event) => choosePhoto(event.target.files?.[0] || null)} />
             </label>
           )}
+          {photoChoice === "upload" && photoInfo && (
+            <div className="photo-status">
+              <div className="photo-status-row">
+                <span>ไฟล์ที่เลือก</span>
+                <strong>{photoInfo.width} x {photoInfo.height} พิกเซล · {(photoInfo.bytes / 1024 / 1024).toFixed(1)} MB</strong>
+              </div>
+              <div className="photo-status-row">
+                <span>ระบบจะปรับให้อัตโนมัติ</span>
+                <strong>
+                  {photoInfo.willResize
+                    ? `ย่อเหลือ ${photoInfo.targetWidth} x ${photoInfo.targetHeight} พิกเซล`
+                    : "คงขนาดเดิม (ไม่ต้องย่อ)"}
+                </strong>
+              </div>
+              <ul className="photo-status-list">
+                <li>ฝังความละเอียด 300 dpi สำหรับงานพิมพ์</li>
+                <li>หมุนภาพให้ตั้งตรงตามที่ถ่ายมา</li>
+                <li>ลบข้อมูลตำแหน่ง GPS และข้อมูลกล้องออกทั้งหมด</li>
+              </ul>
+              <small>พิมพ์ได้สูงสุดประมาณ {Math.round((photoInfo.targetWidth / 300) * 25.4)} x {Math.round((photoInfo.targetHeight / 300) * 25.4)} มม. ที่ 300 dpi</small>
+            </div>
+          )}
+          {photoWarning && <div className="photo-warning">{photoWarning}</div>}
           <h3 className="contact-title">เลือกช่องทางติดต่อที่ต้องการแสดง</h3>
           <p className="contact-help">เลือกได้มากกว่า 1 ช่องทาง หรือเลือกไม่แสดงข้อมูลติดต่อ</p>
           <div className="contact-options">
@@ -293,8 +377,19 @@ export function Yearbook() {
             </div>
             {pdpa === "no" && <p className="decline-copy">หากไม่ยินยอม ระบบจะไม่บันทึกข้อมูลเพื่อใช้ในหนังสืออนุสรณ์</p>}
           </div>
+          {uploadStage && (
+            <div className="upload-status">
+              <span className="upload-spinner" aria-hidden="true" />
+              <div>
+                <strong>{uploadStage === "uploading" ? "กำลังอัปโหลดและปรับขนาดรูปให้พร้อมพิมพ์…" : "กำลังบันทึกข้อมูล…"}</strong>
+                {uploadStage === "uploading" && <small>ระบบกำลังย่อรูป ฝัง 300 dpi และลบข้อมูลตำแหน่งออก กรุณาอย่าปิดหน้านี้</small>}
+              </div>
+            </div>
+          )}
           <form onSubmit={submit}>
-            <button className="submit" disabled={busy || pdpa !== "yes"}>ยืนยันและส่งข้อมูล <Check /></button>
+            <button className="submit" disabled={busy || pdpa !== "yes"}>
+              {busy ? "กำลังส่งข้อมูล…" : <>ยืนยันและส่งข้อมูล <Check /></>}
+            </button>
           </form>
           <button className="back" onClick={() => move(4)}><ChevronLeft /> ย้อนกลับ</button>
         </section>
