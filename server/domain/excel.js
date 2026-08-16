@@ -30,7 +30,12 @@ export const COLUMN_ALIASES = {
     "idcardlast5",
     "national id last 5"
   ],
-  title: ["คำนำหน้า", "คำนำหน้าชื่อ", "title", "prefix"]
+  title: ["คำนำหน้า", "คำนำหน้าชื่อ", "title", "prefix"],
+  currentFirstName: ["ชื่อปัจจุบัน", "ชื่อปัจจุบัน (ถ้าทราบ)", "current firstname", "current first name"],
+  currentLastName: ["นามสกุลปัจจุบัน", "นามสกุลปัจจุบัน (ถ้าทราบ)", "current lastname", "current last name"],
+  outreachEmail: ["อีเมลสำหรับติดต่อ", "อีเมล", "email", "e-mail"],
+  outreachPhone: ["เบอร์โทรสำหรับติดต่อ", "เบอร์โทร", "โทรศัพท์", "phone", "mobile", "tel"],
+  note: ["หมายเหตุ", "note", "remark", "comment"]
 };
 
 function cellText(value) {
@@ -89,6 +94,11 @@ export function mapRow(row) {
   const studentId = onlyDigits(pick(row, COLUMN_ALIASES.studentId));
   const idCardLast5 = onlyDigits(pick(row, COLUMN_ALIASES.idCardLast5)).slice(-5);
   const title = pick(row, COLUMN_ALIASES.title);
+  const currentFirstName = pick(row, COLUMN_ALIASES.currentFirstName);
+  const currentLastName = pick(row, COLUMN_ALIASES.currentLastName);
+  const outreachEmail = pick(row, COLUMN_ALIASES.outreachEmail).toLowerCase();
+  const outreachPhone = pick(row, COLUMN_ALIASES.outreachPhone);
+  const note = pick(row, COLUMN_ALIASES.note);
 
   const errors = [];
   if (!firstName) errors.push("ไม่มีชื่อ");
@@ -97,7 +107,28 @@ export function mapRow(row) {
   if (idCardLast5.length !== 5) errors.push("เลขท้ายบัตรประชาชนต้องมี 5 หลัก");
   if (errors.length) return { ok: false, rowNumber: row.__row, errors };
 
-  return { ok: true, rowNumber: row.__row, value: { firstName, lastName, batch, studentId, idCardLast5, title } };
+  const warnings = [];
+  if (!studentId) warnings.push("ไม่มีรหัสนิสิต — ระบบจะสร้างรหัสระเบียนจากชื่อและรุ่นแทน");
+  if (outreachEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(outreachEmail)) warnings.push("รูปแบบอีเมลไม่ถูกต้อง จึงไม่บันทึกอีเมล");
+
+  return {
+    ok: true,
+    rowNumber: row.__row,
+    warnings,
+    value: {
+      firstName,
+      lastName,
+      batch,
+      studentId,
+      idCardLast5,
+      title,
+      currentFirstName,
+      currentLastName,
+      outreachEmail: warnings.some((item) => item.includes("อีเมล")) ? "" : outreachEmail,
+      outreachPhone: onlyDigits(outreachPhone),
+      note: note.slice(0, 300)
+    }
+  };
 }
 
 /**
@@ -134,11 +165,23 @@ export async function importAlumniWorkbook({ buffer, filename, actor, dryRun = f
   const now = new Date().toISOString();
   const entries = [...byId.entries()].map(([id, item]) => {
     const previous = existing.get(id);
+
+    // The "ชื่อปัจจุบัน" columns only seed records the alumnus has not filled in
+    // yet. Once someone has submitted, their own answer always wins over the sheet.
+    const untouched = !previous || previous.status === "pending";
+    const seededName = untouched && (item.value.currentFirstName || item.value.currentLastName)
+      ? {
+          currentFirstName: item.value.currentFirstName || item.value.firstName,
+          currentLastName: item.value.currentLastName || item.value.lastName
+        }
+      : {};
+
     return {
       id,
       data: {
         ...(previous ? {} : defaultSubmissionFields(item.value)),
         ...referenceFields(item.value),
+        ...seededName,
         createdAt: previous?.createdAt || now,
         updatedAt: now,
         updatedBy: actor?.uid || "system",
@@ -194,30 +237,166 @@ const EXPORT_COLUMNS = [
   ["เวลาที่ส่งข้อมูล", (record) => record.submittedAt || ""]
 ];
 
-/** Excel export. The ID-card hash is never included. */
-export async function buildExportWorkbook(records) {
+/** Follow-up columns. Only added when an administrator explicitly asks for them. */
+const OUTREACH_COLUMNS = [
+  ["อีเมลสำหรับติดต่อ", (record) => record.outreach?.email || ""],
+  ["เบอร์โทรสำหรับติดต่อ", (record) => record.outreach?.phone || ""],
+  ["หมายเหตุจากไฟล์นำเข้า", (record) => record.outreach?.note || ""]
+];
+
+/**
+ * Excel export. The ID-card hash is never included.
+ *
+ * `includeOutreach` adds the administrator's follow-up contact columns. It is
+ * off by default so the file handed to the design team carries only what the
+ * alumnus consented to publish.
+ */
+export async function buildExportWorkbook(records, { includeOutreach = false } = {}) {
+  const columns = includeOutreach ? [...EXPORT_COLUMNS, ...OUTREACH_COLUMNS] : EXPORT_COLUMNS;
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "ระบบหนังสืออนุสรณ์ สภจ. 2569";
   workbook.created = new Date();
   const worksheet = workbook.addWorksheet("yearbook-2569");
-  worksheet.columns = EXPORT_COLUMNS.map(([header]) => ({ header, key: header, width: Math.max(16, header.length + 6) }));
-  records.forEach((record) => worksheet.addRow(Object.fromEntries(EXPORT_COLUMNS.map(([header, read]) => [header, read(record)]))));
+  worksheet.columns = columns.map(([header]) => ({ header, key: header, width: Math.max(16, header.length + 6) }));
+  records.forEach((record) => worksheet.addRow(Object.fromEntries(columns.map(([header, read]) => [header, read(record)]))));
   worksheet.getRow(1).font = { bold: true };
   worksheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF2E7D5" } };
   worksheet.views = [{ state: "frozen", ySplit: 1 }];
-  worksheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: EXPORT_COLUMNS.length } };
+  worksheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: columns.length } };
   return workbook.xlsx.writeBuffer();
 }
 
-/** Blank spreadsheet an administrator can fill in and re-upload. */
+/**
+ * Column plan for the import template.
+ * `required` drives the header colour and the instruction sheet.
+ */
+const TEMPLATE_COLUMNS = [
+  { header: "คำนำหน้า", width: 12, required: false, text: false, purpose: "คำนำหน้าชื่อสมัยเรียน เช่น นาย นางสาว", example: "นาย" },
+  { header: "ชื่อ", width: 20, required: true, text: false, purpose: "ชื่อจริง “สมัยเรียน” ใช้ให้นิสิตเก่าค้นหาตัวเอง", example: "สมชาย" },
+  { header: "นามสกุล", width: 22, required: true, text: false, purpose: "นามสกุล “สมัยเรียน” ใช้ให้นิสิตเก่าค้นหาตัวเอง", example: "ใจดี" },
+  { header: "รุ่น", width: 8, required: true, text: false, purpose: `ตัวเลข 1-${config.maxBatch} ใช้กรองก่อนค้นหาชื่อเสมอ`, example: 45 },
+  { header: "รหัสนิสิต", width: 14, required: false, text: true, purpose: "แนะนำอย่างยิ่ง — ทำให้นำเข้าไฟล์ซ้ำเป็นการอัปเดต ไม่สร้างข้อมูลซ้ำ", example: "2676061" },
+  { header: "เลขท้ายบัตรประชาชน 5 หลัก", width: 26, required: true, text: true, purpose: "ใช้ยืนยันตัวตน เก็บแบบเข้ารหัสทางเดียว ไม่ปรากฏในหนังสือหรือไฟล์ส่งออก", example: "12345" },
+  { header: "ชื่อปัจจุบัน", width: 20, required: false, text: false, purpose: "ถ้าสมาคมทราบว่าเปลี่ยนชื่อแล้ว ระบบจะเติมให้ล่วงหน้า (เจ้าตัวแก้ได้)", example: "สมชาย" },
+  { header: "นามสกุลปัจจุบัน", width: 22, required: false, text: false, purpose: "เช่นเดียวกับชื่อปัจจุบัน — จะไม่ทับข้อมูลที่เจ้าตัวกรอกเองแล้ว", example: "ใจงาม" },
+  { header: "อีเมลสำหรับติดต่อ", width: 26, required: false, text: false, purpose: "สำหรับผู้ดูแลใช้ติดตามให้มากรอกข้อมูล ไม่ลงหนังสือ", example: "somchai@example.com" },
+  { header: "เบอร์โทรสำหรับติดต่อ", width: 20, required: false, text: true, purpose: "สำหรับผู้ดูแลใช้ติดตาม ไม่ลงหนังสือ", example: "0812345678" },
+  { header: "หมายเหตุ", width: 30, required: false, text: false, purpose: "บันทึกภายใน เช่น ติดต่อไม่ได้ / ย้ายต่างประเทศ", example: "ตัวแทนรุ่นยืนยันข้อมูลแล้ว" }
+];
+
+const HEADER_REQUIRED = "FFE8D7A8";
+const HEADER_OPTIONAL = "FFE6ECE0";
+
+/**
+ * Import template with two sheets: an empty, validated data sheet and an
+ * instruction sheet that carries the example rows. Keeping the examples off the
+ * data sheet means nobody can accidentally import "สมชาย ใจดี" as a real person.
+ */
 export async function buildImportTemplate() {
   const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet("รายชื่อนิสิตเก่า");
-  const headers = ["คำนำหน้า", "ชื่อ", "นามสกุล", "รุ่น", "รหัสนิสิต", "เลขท้ายบัตรประชาชน 5 หลัก"];
-  worksheet.columns = headers.map((header) => ({ header, key: header, width: Math.max(18, header.length + 6) }));
-  worksheet.addRow({ "คำนำหน้า": "นาย", "ชื่อ": "สมชาย", "นามสกุล": "ใจดี", "รุ่น": 45, "รหัสนิสิต": "2676061", "เลขท้ายบัตรประชาชน 5 หลัก": "12345" });
-  worksheet.getRow(1).font = { bold: true };
-  worksheet.getColumn("เลขท้ายบัตรประชาชน 5 หลัก").numFmt = "@";
-  worksheet.getColumn("รหัสนิสิต").numFmt = "@";
+  workbook.creator = "ระบบหนังสืออนุสรณ์ สภจ. 2569";
+  workbook.created = new Date();
+
+  const sheet = workbook.addWorksheet("รายชื่อนิสิตเก่า", { views: [{ state: "frozen", ySplit: 1 }] });
+  sheet.columns = TEMPLATE_COLUMNS.map((column) => ({ header: column.header, key: column.header, width: column.width }));
+
+  const headerRow = sheet.getRow(1);
+  headerRow.height = 34;
+  headerRow.font = { bold: true, size: 11 };
+  headerRow.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+  TEMPLATE_COLUMNS.forEach((column, index) => {
+    const cell = headerRow.getCell(index + 1);
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: column.required ? HEADER_REQUIRED : HEADER_OPTIONAL } };
+    cell.border = { bottom: { style: "thin", color: { argb: "FFAAB3A2" } } };
+    cell.note = `${column.required ? "จำเป็นต้องกรอก" : "ไม่บังคับ"}\n${column.purpose}`;
+  });
+
+  // Force text format on identifier columns so Excel keeps leading zeros.
+  TEMPLATE_COLUMNS.forEach((column, index) => {
+    if (column.text) sheet.getColumn(index + 1).numFmt = "@";
+  });
+
+  // Validation on 2,000 blank rows — enough for the largest batch, and the
+  // rules survive copy-paste from the association's own spreadsheet.
+  const batchColumn = TEMPLATE_COLUMNS.findIndex((column) => column.header === "รุ่น") + 1;
+  const idColumn = TEMPLATE_COLUMNS.findIndex((column) => column.header === "เลขท้ายบัตรประชาชน 5 หลัก") + 1;
+  for (let row = 2; row <= 2000; row += 1) {
+    sheet.getCell(row, batchColumn).dataValidation = {
+      type: "whole",
+      operator: "between",
+      formulae: [1, config.maxBatch],
+      allowBlank: true,
+      showErrorMessage: true,
+      errorTitle: "รุ่นไม่ถูกต้อง",
+      error: `กรุณากรอกรุ่นเป็นตัวเลข 1 ถึง ${config.maxBatch}`
+    };
+    sheet.getCell(row, idColumn).dataValidation = {
+      type: "textLength",
+      operator: "equal",
+      formulae: [5],
+      allowBlank: true,
+      showErrorMessage: true,
+      errorTitle: "เลขท้ายบัตรประชาชนไม่ถูกต้อง",
+      error: "ต้องเป็นตัวเลข 5 หลักพอดี หากขึ้นต้นด้วย 0 ให้จัดรูปแบบเซลล์เป็นข้อความ"
+    };
+  }
+  sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: TEMPLATE_COLUMNS.length } };
+
+  buildInstructionSheet(workbook);
   return workbook.xlsx.writeBuffer();
+}
+
+function buildInstructionSheet(workbook) {
+  const guide = workbook.addWorksheet("คำแนะนำการกรอก");
+  guide.columns = [{ width: 28 }, { width: 12 }, { width: 62 }, { width: 24 }];
+
+  const title = guide.addRow(["วิธีเตรียมไฟล์รายชื่อนิสิตเก่า"]);
+  title.font = { bold: true, size: 14 };
+  guide.mergeCells(`A${title.number}:D${title.number}`);
+  guide.addRow([]);
+
+  [
+    "1. กรอกข้อมูลในชีต “รายชื่อนิสิตเก่า” เท่านั้น หนึ่งคนต่อหนึ่งแถว ห้ามลบหรือแก้ไขแถวหัวตาราง",
+    "2. คอลัมน์พื้นหลังสีเข้มคือคอลัมน์ที่จำเป็น หากขาดข้อมูลระบบจะข้ามแถวนั้นและรายงานให้ทราบ",
+    "3. ลำดับคอลัมน์สลับกันได้ ระบบอ่านจากชื่อหัวคอลัมน์ และจะไม่สนใจคอลัมน์อื่นที่เพิ่มเข้ามา",
+    "4. “รหัสนิสิต” ไม่บังคับ แต่แนะนำอย่างยิ่ง เพราะเป็นตัวระบุตัวตนถาวรของแต่ละระเบียน",
+    "5. อัปโหลดที่หน้า /admin แท็บ “นำเข้า / ส่งออก” แล้วกด “ตรวจสอบไฟล์ก่อน” เพื่อดูผลโดยยังไม่บันทึก",
+    "6. นำเข้าไฟล์เดิมซ้ำได้เสมอ ระบบจะอัปเดตข้อมูลอ้างอิงให้ โดยไม่ทับข้อมูลที่นิสิตเก่ากรอกไว้แล้ว"
+  ].forEach((line) => {
+    const row = guide.addRow([line]);
+    guide.mergeCells(`A${row.number}:D${row.number}`);
+    row.alignment = { wrapText: true, vertical: "top" };
+  });
+
+  guide.addRow([]);
+  const specHeader = guide.addRow(["คอลัมน์", "จำเป็น", "คำอธิบาย", "ตัวอย่าง"]);
+  specHeader.font = { bold: true };
+  specHeader.eachCell((cell) => {
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_OPTIONAL } };
+    cell.border = { bottom: { style: "thin", color: { argb: "FFAAB3A2" } } };
+  });
+
+  TEMPLATE_COLUMNS.forEach((column) => {
+    const row = guide.addRow([column.header, column.required ? "จำเป็น" : "—", column.purpose, String(column.example)]);
+    row.alignment = { wrapText: true, vertical: "top" };
+    if (column.required) row.getCell(2).font = { bold: true, color: { argb: "FF8A6A12" } };
+  });
+
+  guide.addRow([]);
+  const privacy = guide.addRow(["ข้อควรระวังด้านข้อมูลส่วนบุคคล (PDPA)"]);
+  privacy.font = { bold: true, size: 12 };
+  guide.mergeCells(`A${privacy.number}:D${privacy.number}`);
+
+  [
+    "• เลขท้ายบัตรประชาชนใช้เพื่อยืนยันตัวตนเท่านั้น ระบบเก็บเป็นค่าเข้ารหัสทางเดียว อ่านย้อนกลับไม่ได้",
+    "• อีเมลและเบอร์โทรในไฟล์นี้ใช้สำหรับผู้ดูแลติดตามงานเท่านั้น จะไม่ถูกนำไปลงหนังสือ",
+    "  ช่องทางติดต่อที่ลงหนังสือคือช่องทางที่นิสิตเก่าเลือกและยินยอมด้วยตนเองในระบบ",
+    "• ไฟล์ต้นฉบับนี้มีข้อมูลส่วนบุคคล กรุณาเก็บในที่ปลอดภัยและอย่าส่งต่อโดยไม่จำเป็น"
+  ].forEach((line) => {
+    const row = guide.addRow([line]);
+    guide.mergeCells(`A${row.number}:D${row.number}`);
+    row.alignment = { wrapText: true, vertical: "top" };
+  });
+
+  return guide;
 }

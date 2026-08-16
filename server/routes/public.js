@@ -6,7 +6,6 @@ import { audit } from "../lib/audit.js";
 import { multipartBody } from "../lib/multipart.js";
 import { getSettings } from "../domain/settings.js";
 import {
-  alumniView,
   appendNameHistory,
   findAlumniById,
   normalizeText,
@@ -14,6 +13,7 @@ import {
   saveAlumni,
   searchAlumni,
   searchResult,
+  selfView,
   syncSubmission,
   validateContacts,
   verifyIdCard
@@ -73,7 +73,7 @@ router.post("/verify", route(async (req, res) => {
     throw notFound("ข้อมูลยืนยันตัวตนไม่ตรงกับฐานข้อมูลอ้างอิง");
   }
   await audit(req, "public.verify.success", { targetType: "alumni", targetId: record.id });
-  res.json({ submitToken: issueSubmitToken(record.id), expiresInMinutes: SUBMIT_TOKEN_MINUTES, alum: alumniView(record) });
+  res.json({ submitToken: issueSubmitToken(record.id), expiresInMinutes: SUBMIT_TOKEN_MINUTES, alum: selfView(record) });
 }));
 
 /** A signed-in alumni account can edit its record without re-entering the ID digits. */
@@ -81,7 +81,7 @@ router.post("/my-record", loadUser, route(async (req, res) => {
   if (!req.user?.alumniId) throw forbidden("บัญชีนี้ไม่ได้ผูกกับข้อมูลนิสิตเก่า");
   const record = await findAlumniById(req.user.alumniId);
   if (!record) throw notFound("ไม่พบข้อมูลนิสิตเก่าที่ผูกกับบัญชีนี้");
-  res.json({ submitToken: issueSubmitToken(record.id), expiresInMinutes: SUBMIT_TOKEN_MINUTES, alum: alumniView(record) });
+  res.json({ submitToken: issueSubmitToken(record.id), expiresInMinutes: SUBMIT_TOKEN_MINUTES, alum: selfView(record) });
 }));
 
 router.post("/decline", route(async (req, res) => {

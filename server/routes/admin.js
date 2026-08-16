@@ -9,6 +9,7 @@ import { assertBatchAccess, loadUser, requireAuth, requireFreshPassword, require
 import {
   ROLES,
   assertCanManage,
+  can,
   createUser,
   deleteUser,
   findUserById,
@@ -225,10 +226,15 @@ router.get("/import/jobs", requirePermission("alumni.import"), route(async (_req
 router.get("/export.xlsx", requirePermission("alumni.export"), route(async (req, res) => {
   const batch = req.query.batch ? parseBatch(req.query.batch) : null;
   if (batch) assertBatchAccess(req.user, batch);
+  // Follow-up contact details are opt-in and limited to owner/admin, so the
+  // default download stays safe to hand to the design team.
+  const includeOutreach = String(req.query.includeOutreach) === "true";
+  if (includeOutreach && !can(req.user, "alumni.write")) throw forbidden("ไม่มีสิทธิ์ส่งออกข้อมูลติดต่อสำหรับติดตาม");
+
   const records = await listAlumni({ batch: batch || undefined, status: STATUSES.includes(String(req.query.status)) ? String(req.query.status) : undefined, limit: 20000 });
-  await audit(req, "alumni.export", { meta: { count: records.length, batch: batch || "all" } });
-  res.setHeader("Content-Disposition", `attachment; filename=yearbook-2569${batch ? `-batch-${batch}` : ""}.xlsx`);
-  res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").send(Buffer.from(await buildExportWorkbook(records)));
+  await audit(req, "alumni.export", { meta: { count: records.length, batch: batch || "all", includeOutreach } });
+  res.setHeader("Content-Disposition", `attachment; filename=yearbook-2569${batch ? `-batch-${batch}` : ""}${includeOutreach ? "-followup" : ""}.xlsx`);
+  res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").send(Buffer.from(await buildExportWorkbook(records, { includeOutreach })));
 }));
 
 /* ------------------------------- settings -------------------------------- */

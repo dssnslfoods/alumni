@@ -37,7 +37,7 @@ export function alumniId({ studentId, batch, firstName, lastName }) {
 }
 
 /** Reference fields owned by the imported master list. */
-export function referenceFields({ studentId, batch, firstName, lastName, idCardLast5, title = "" }) {
+export function referenceFields({ studentId, batch, firstName, lastName, idCardLast5, title = "", outreachEmail = "", outreachPhone = "", note = "" }) {
   const first = normalizeText(firstName);
   const last = normalizeText(lastName);
   return {
@@ -49,7 +49,9 @@ export function referenceFields({ studentId, batch, firstName, lastName, idCardL
     searchFirst: searchKey(first),
     searchLast: searchKey(last),
     searchFull: `${searchKey(first)}${searchKey(last)}`,
-    idCardLast5Hash: hashIdCardLast5(idCardLast5)
+    idCardLast5Hash: hashIdCardLast5(idCardLast5),
+    // ช่องทางสำหรับผู้ดูแล "ตามงาน" เท่านั้น — คนละส่วนกับ contacts ที่เจ้าตัวยินยอมให้ลงหนังสือ
+    outreach: { email: normalizeText(outreachEmail).toLowerCase(), phone: onlyDigits(outreachPhone), note: normalizeText(note) }
   };
 }
 
@@ -120,10 +122,29 @@ export function searchResult(record) {
   };
 }
 
-/** Full record for the verified owner or an administrator. */
+/** Full record for an administrator. */
 export function alumniView(record) {
   if (!record) return null;
   const { idCardLast5Hash: _hash, ...safe } = record;
+  return safe;
+}
+
+/**
+ * What the alumnus sees about themselves after verifying. Internal
+ * administrative fields — outreach contacts, review notes, import provenance —
+ * stay out of the public API surface entirely.
+ */
+export function selfView(record) {
+  if (!record) return null;
+  const {
+    idCardLast5Hash: _hash,
+    outreach: _outreach,
+    source: _source,
+    reviewNote: _reviewNote,
+    reviewedBy: _reviewedBy,
+    updatedBy: _updatedBy,
+    ...safe
+  } = record;
   return safe;
 }
 
@@ -163,7 +184,7 @@ export async function saveAlumni(id, patch) {
  * the audit metadata never reach this collection.
  */
 export async function syncSubmission(record) {
-  const { idCardLast5Hash: _hash, source: _source, ...rest } = record;
+  const { idCardLast5Hash: _hash, source: _source, outreach: _outreach, ...rest } = record;
   return setDoc(SUBMISSIONS, record.id, { ...rest, syncedAt: new Date().toISOString() });
 }
 

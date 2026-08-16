@@ -265,8 +265,12 @@ function ImportExport() {
     <div className="panel">
       <h3>นำเข้าฐานรายชื่อจาก Excel</h3>
       <p className="panel-note">
-        ไฟล์ต้องมีคอลัมน์: <strong>ชื่อ, นามสกุล, รุ่น, เลขท้ายบัตรประชาชน 5 หลัก</strong> และแนะนำให้มี <strong>รหัสนิสิต</strong>
-        เพื่อให้การนำเข้าครั้งถัดไปเป็นการอัปเดตระเบียนเดิมแทนการสร้างซ้ำ ข้อมูลที่นิสิตเก่ากรอกไว้แล้วจะไม่ถูกทับ
+        คอลัมน์ที่จำเป็น: <strong>ชื่อ, นามสกุล, รุ่น, เลขท้ายบัตรประชาชน 5 หลัก</strong> — แนะนำอย่างยิ่งให้มี <strong>รหัสนิสิต</strong>
+        เพื่อให้การนำเข้าครั้งถัดไปเป็นการอัปเดตระเบียนเดิมแทนการสร้างซ้ำ
+        <br />
+        คอลัมน์เพิ่มเติมที่รองรับ: ชื่อปัจจุบัน, นามสกุลปัจจุบัน, อีเมลสำหรับติดต่อ, เบอร์โทรสำหรับติดต่อ, คำนำหน้า และหมายเหตุ
+        <br />
+        ลำดับคอลัมน์สลับกันได้ และ<strong>ข้อมูลที่นิสิตเก่ากรอกไว้แล้วจะไม่ถูกทับ</strong> — กดปุ่มด้านล่างเพื่อดาวน์โหลดไฟล์ต้นแบบพร้อมคำแนะนำการกรอก
       </p>
 
       <button className="ghost" onClick={() => download("/api/admin/import/template.xlsx", "alumni-import-template.xlsx")}>
@@ -290,11 +294,28 @@ function ImportExport() {
       {result && <ImportReport job={result} title="นำเข้าเรียบร้อยแล้ว" tone="ok" />}
 
       <h3 className="section-gap">ส่งออกข้อมูล</h3>
-      <p className="panel-note">ไฟล์ส่งออกไม่มีเลขบัตรประชาชนหรือค่าแฮชใด ๆ ลิงก์รูปภาพถือเป็นข้อมูลลับสำหรับทีมออกแบบเท่านั้น</p>
+      <p className="panel-note">
+        ไฟล์ส่งออกไม่มีเลขบัตรประชาชนหรือค่าแฮชใด ๆ ลิงก์รูปภาพถือเป็นข้อมูลลับ
+        <br />
+        <strong>ไฟล์สำหรับทีมออกแบบ</strong> มีเฉพาะข้อมูลที่นิสิตเก่ายินยอมให้ลงหนังสือ ส่วน
+        <strong> ไฟล์สำหรับติดตามงาน</strong> จะเพิ่มอีเมลและเบอร์โทรที่ผู้ดูแลใช้ติดต่อ — ห้ามส่งต่อให้ทีมออกแบบ
+      </p>
       <div className="filters">
         <Field label="ระบุรุ่น (เว้นว่าง = ทุกรุ่น)" value={exportBatch} setValue={(value) => setExportBatch(value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric" />
-        <button className="next compact-btn" onClick={() => download(`/api/admin/export.xlsx${exportBatch ? `?batch=${exportBatch}` : ""}`, `yearbook-2569${exportBatch ? `-batch-${exportBatch}` : ""}.xlsx`)}>
-          <Download /> ส่งออก Excel
+        <button
+          className="next compact-btn"
+          onClick={() => download(`/api/admin/export.xlsx${exportBatch ? `?batch=${exportBatch}` : ""}`, `yearbook-2569${exportBatch ? `-batch-${exportBatch}` : ""}.xlsx`)}
+        >
+          <Download /> ไฟล์สำหรับทีมออกแบบ
+        </button>
+        <button
+          className="ghost compact-btn"
+          onClick={() => download(
+            `/api/admin/export.xlsx?includeOutreach=true${exportBatch ? `&batch=${exportBatch}` : ""}`,
+            `yearbook-2569${exportBatch ? `-batch-${exportBatch}` : ""}-followup.xlsx`
+          )}
+        >
+          <Download /> ไฟล์สำหรับติดตามงาน
         </button>
       </div>
     </div>
