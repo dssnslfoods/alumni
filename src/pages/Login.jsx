@@ -3,7 +3,7 @@ import { ArrowRight, ChevronLeft, KeyRound, ShieldCheck } from "lucide-react";
 import { Alert, Field, Shell } from "../components/Shell.jsx";
 import { api, session } from "../lib/api.js";
 
-export function Login({ onSignedIn, onClose }) {
+export function Login({ onSignedIn, onClose, notice = "" }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -30,6 +30,7 @@ export function Login({ onSignedIn, onClose }) {
         <KeyRound />
         <h2>เข้าสู่ระบบผู้ดูแล</h2>
         <p>สำหรับเจ้าของระบบ ผู้ดูแล และตัวแทนรุ่นที่ได้รับสิทธิ์</p>
+        {notice && <Alert tone="ok">{notice}</Alert>}
         <form onSubmit={signIn}>
           <Field label="ชื่อผู้ใช้" value={username} setValue={setUsername} autoComplete="username" autoFocus />
           <Field label="รหัสผ่าน" value={password} setValue={setPassword} type="password" autoComplete="current-password" />
@@ -43,7 +44,7 @@ export function Login({ onSignedIn, onClose }) {
   );
 }
 
-export function ChangePassword({ user, onDone, forced }) {
+export function ChangePassword({ user, onChanged, onCancel, forced }) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -56,9 +57,10 @@ export function ChangePassword({ user, onDone, forced }) {
     setBusy(true);
     setMessage("");
     try {
-      const data = await api("/api/auth/change-password", { method: "POST", body: { currentPassword, newPassword } });
-      session.save(data.token);
-      onDone(data.user);
+      await api("/api/auth/change-password", { method: "POST", body: { currentPassword, newPassword } });
+      // The server revoked every session, so drop the token before re-rendering.
+      session.clear();
+      onChanged(user.username);
     } catch (error) {
       setMessage(error.message);
     } finally {
@@ -76,6 +78,9 @@ export function ChangePassword({ user, onDone, forced }) {
             ? `บัญชี ${user.username} ยังใช้รหัสผ่านชั่วคราว กรุณาตั้งรหัสผ่านใหม่เพื่อเริ่มใช้งานระบบ`
             : "รหัสผ่านต้องยาวอย่างน้อย 10 ตัวอักษร และมีทั้งตัวอักษรและตัวเลข"}
         </p>
+        <p className="privacy-note">
+          <ShieldCheck /> เมื่อบันทึกแล้ว ระบบจะออกจากระบบให้อัตโนมัติ และให้เข้าสู่ระบบใหม่ด้วยรหัสผ่านที่เพิ่งตั้ง
+        </p>
         <form onSubmit={change}>
           <Field label="รหัสผ่านปัจจุบัน" value={currentPassword} setValue={setCurrentPassword} type="password" autoComplete="current-password" autoFocus />
           <Field label="รหัสผ่านใหม่" value={newPassword} setValue={setNewPassword} type="password" autoComplete="new-password" hint="(อย่างน้อย 10 ตัว มีตัวอักษรและตัวเลข)" />
@@ -83,7 +88,7 @@ export function ChangePassword({ user, onDone, forced }) {
           <button className="next" disabled={busy || !currentPassword || !newPassword}>บันทึกรหัสผ่านใหม่ <ArrowRight /></button>
         </form>
         <Alert>{message}</Alert>
-        {!forced && <button className="back" onClick={() => onDone(user)}><ChevronLeft /> ยกเลิก</button>}
+        {!forced && <button className="back" onClick={onCancel}><ChevronLeft /> ยกเลิก</button>}
       </section>
     </Shell>
   );

@@ -292,7 +292,7 @@ const HEADER_OPTIONAL = "FFE6ECE0";
  * instruction sheet that carries the example rows. Keeping the examples off the
  * data sheet means nobody can accidentally import "สมชาย ใจดี" as a real person.
  */
-export async function buildImportTemplate() {
+export async function buildImportTemplate({ rows = [] } = {}) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "ระบบหนังสืออนุสรณ์ สภจ. 2569";
   workbook.created = new Date();
@@ -315,6 +315,8 @@ export async function buildImportTemplate() {
   TEMPLATE_COLUMNS.forEach((column, index) => {
     if (column.text) sheet.getColumn(index + 1).numFmt = "@";
   });
+
+  rows.forEach((row) => sheet.addRow(row));
 
   // Validation on 2,000 blank rows — enough for the largest batch, and the
   // rules survive copy-paste from the association's own spreadsheet.

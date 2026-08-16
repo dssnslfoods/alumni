@@ -47,10 +47,15 @@ router.post("/change-password", loadUser, requireAuth, route(async (req, res) =>
   if (!(await verifyPassword(currentPassword, user.passwordHash))) throw unauthorized("รหัสผ่านปัจจุบันไม่ถูกต้อง");
   if (safeEquals(currentPassword, newPassword)) throw badRequest("รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม");
 
-  const updated = await setPassword(user.id, newPassword, { mustChangePassword: false, actorUid: user.id });
+  await setPassword(user.id, newPassword, { mustChangePassword: false, actorUid: user.id });
   await audit(req, "auth.password.changed", { targetType: "user", targetId: user.id });
-  const refreshed = await findUserById(user.id);
-  res.json({ token: issueToken(refreshed), user: publicUser({ ...refreshed, ...updated }) });
+
+  // Changing a password revokes every existing session, this one included. We
+  // deliberately do NOT hand back a fresh token: rotating it in place left a
+  // window where an in-flight request still carried the revoked token, and the
+  // resulting 401 silently signed the user out mid-flow. Signing in again is
+  // unambiguous and proves the new password actually works.
+  res.json({ ok: true, mustSignInAgain: true, username: user.username });
 }));
 
 /**

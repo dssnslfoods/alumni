@@ -18,6 +18,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [restoring, setRestoring] = useState(Boolean(session.token));
   const [changing, setChanging] = useState(false);
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     const onPop = () => setPage(routeFor(location.pathname));
@@ -42,10 +43,18 @@ function App() {
   if (page === "privacy") return <Privacy onClose={() => go("/")} />;
   if (page !== "admin") return <Yearbook />;
 
+  /** Changing a password revokes the session, so always return to the sign-in page. */
+  function passwordChanged(username) {
+    session.clear();
+    setUser(null);
+    setChanging(false);
+    setNotice(`เปลี่ยนรหัสผ่านของบัญชี ${username} เรียบร้อยแล้ว กรุณาเข้าสู่ระบบอีกครั้งด้วยรหัสผ่านใหม่`);
+  }
+
   if (restoring) return <div className="boot">กำลังตรวจสอบสิทธิ์การใช้งาน…</div>;
-  if (!user) return <Login onSignedIn={setUser} onClose={() => go("/")} />;
-  if (user.mustChangePassword) return <ChangePassword user={user} forced onDone={setUser} />;
-  if (changing) return <ChangePassword user={user} onDone={(updated) => { setUser(updated); setChanging(false); }} />;
+  if (!user) return <Login notice={notice} onSignedIn={(signedIn) => { setNotice(""); setUser(signedIn); }} onClose={() => go("/")} />;
+  if (user.mustChangePassword) return <ChangePassword user={user} forced onChanged={passwordChanged} />;
+  if (changing) return <ChangePassword user={user} onChanged={passwordChanged} onCancel={() => setChanging(false)} />;
 
   return (
     <Console
