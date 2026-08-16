@@ -1,4 +1,6 @@
 import express from "express";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { assertRuntimeConfig, config, isCloudFunction, isProduction, uploadsDir } from "./lib/env.js";
 import { usingFirestore } from "./lib/db.js";
 import { errorHandler, notFound, route } from "./lib/http.js";
@@ -44,9 +46,18 @@ app.use("/api/admin", adminRoutes);
 app.use("/api", (_req, _res, next) => next(notFound("ไม่พบ endpoint ที่เรียก")));
 app.use(errorHandler);
 
+/**
+ * Only listen when this file is the process entry point.
+ *
+ * `firebase deploy` imports functions.js — and therefore this module — to
+ * discover the exported handlers. Starting a listener during that analysis
+ * either crashes the deploy with EADDRINUSE or leaves a stray server behind.
+ */
+const isEntryPoint = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
 // Create the platform-owner account on boot outside Cloud Functions; inside
 // Cloud Functions it happens lazily on the first /api/health or login request.
-if (!isCloudFunction) {
+if (!isCloudFunction && isEntryPoint) {
   ensureOwnerAccount().catch((error) => console.error("bootstrap owner failed:", error.message));
   // Deliberately not `PORT`: tooling often injects PORT for the front-end dev
   // server, and the API must not fight it for the same port.
