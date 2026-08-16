@@ -1,0 +1,27 @@
+{
+  "functions": [
+    {
+      "source": ".",
+      "codebase": "api",
+      "runtime": "nodejs22",
+      "ignore": ["node_modules", "dist", "uploads", "outputs", ".git", ".env", ".env.*", "sources", "data/db", "scripts"]
+    }
+  ],
+  "hosting": {
+    "site": "alumni-13428",
+    "public": "dist",
+    "ignore": ["firebase.json", ".firebaserc", "**/.*", "**/node_modules/**"],
+    "rewrites": [
+      { "source": "/api/**", "function": { "functionId": "api", "region": "asia-southeast1" } },
+      { "source": "**", "destination": "/index.html" }
+    ],
+    "headers": [
+      {
+        "source": "/api/**",
+        "headers": [{ "key": "Cache-Control", "value": "no-store" }]
+      }
+    ]
+  },
+  "firestore": { "rules": "firestore.rules", "indexes": "firestore.indexes.json" },
+  "storage": { "rules": "storage.rules" }
+}

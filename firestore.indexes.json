@@ -1,0 +1,45 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "alumni",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "batch", "order": "ASCENDING" },
+        { "fieldPath": "searchFirst", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "alumni",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "batch", "order": "ASCENDING" },
+        { "fieldPath": "searchLast", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "alumni",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "batch", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "role", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "auditLogs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "action", "order": "ASCENDING" },
+        { "fieldPath": "at", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

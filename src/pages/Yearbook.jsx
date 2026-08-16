@@ -1,0 +1,325 @@
+import { useEffect, useState } from "react";
+import { ArrowRight, Check, ChevronLeft, Facebook, ImagePlus, Instagram, Landmark, Phone, Search, ShieldCheck, Upload, UserRoundCheck, X } from "lucide-react";
+import { Alert, Field, Review, Shell } from "../components/Shell.jsx";
+import { api } from "../lib/api.js";
+
+const steps = ["ความประสงค์", "ค้นหารายชื่อ", "ยืนยันตัวตน", "ข้อมูลหนังสือ", "รูปและติดต่อ", "ยืนยันส่ง"];
+const contactOptions = [
+  ["facebook", "Facebook", Facebook],
+  ["instagram", "Instagram", Instagram],
+  ["line", "LINE ID", Landmark],
+  ["phone", "โทรศัพท์", Phone],
+  ["none", "ไม่แสดงข้อมูลติดต่อ", X]
+];
+
+export function Yearbook() {
+  const [settings, setSettings] = useState({ maxBatch: 88, bioMaxLength: 500, submissionOpen: true, closedMessage: "" });
+  const [step, setStep] = useState(0);
+  const [batch, setBatch] = useState("");
+  const [query, setQuery] = useState("");
+  const [matches, setMatches] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [last5, setLast5] = useState("");
+  const [submitToken, setSubmitToken] = useState("");
+  const [alum, setAlum] = useState(null);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [photoChoice, setPhotoChoice] = useState("upload");
+  const [photo, setPhoto] = useState(null);
+  const [selectedContacts, setSelectedContacts] = useState([]);
+  const [contactValues, setContactValues] = useState({ facebook: "", instagram: "", line: "", phone: "" });
+  const [bio, setBio] = useState("");
+  const [pdpa, setPdpa] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api("/api/public/settings", { auth: false }).then(setSettings).catch(() => {});
+  }, []);
+
+  const nameChanged = alum && `${firstName} ${lastName}`.trim() !== `${alum.currentFirstName} ${alum.currentLastName}`.trim();
+  const selectedContactDetails = contactOptions
+    .filter(([type]) => selectedContacts.includes(type))
+    .map(([type, label]) => ({ type, label, value: contactValues[type] }));
+
+  function move(next) {
+    setNotice("");
+    setStep(next);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function run(action) {
+    setBusy(true);
+    setNotice("");
+    try {
+      await action();
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const search = (event) => {
+    event.preventDefault();
+    setMatches([]);
+    return run(async () => {
+      const data = await api("/api/public/search", { method: "POST", auth: false, body: { batch, query } });
+      setMatches(data.matches);
+      if (!data.matches.length) setNotice("ไม่พบรายชื่อ กรุณาตรวจชื่อเดิมสมัยเรียนและรุ่นอีกครั้ง");
+    });
+  };
+
+  const verify = (event) => {
+    event.preventDefault();
+    return run(async () => {
+      const data = await api("/api/public/verify", { method: "POST", auth: false, body: { alumniId: selected.id, idCardLast5: last5 } });
+      setSubmitToken(data.submitToken);
+      setAlum(data.alum);
+      setFirstName(data.alum.currentFirstName || data.alum.legalFirstName);
+      setLastName(data.alum.currentLastName || data.alum.legalLastName);
+      setBio(data.alum.bio || "");
+      if (data.alum.contacts?.length) {
+        setSelectedContacts(data.alum.contacts.map((contact) => contact.type));
+        setContactValues((current) => ({ ...current, ...Object.fromEntries(data.alum.contacts.map((contact) => [contact.type, contact.value])) }));
+      }
+      move(3);
+    });
+  };
+
+  const submit = (event) => {
+    event.preventDefault();
+    if (pdpa !== "yes") return setNotice("กรุณาเลือก “ยินยอม” เพื่ออนุญาตให้ใช้ข้อมูลในหนังสืออนุสรณ์");
+    if (photoChoice === "upload" && !photo && !alum?.photo?.downloadUrl) return setNotice("กรุณาเลือกไฟล์รูปภาพ หรือเลือกไม่แสดงรูปในหนังสือ");
+    if (selectedContactDetails.some((item) => !item.value.trim())) return setNotice("กรุณากรอกข้อมูลในทุกช่องทางติดต่อที่เลือก");
+
+    const body = new FormData();
+    body.append("currentFirstName", firstName);
+    body.append("currentLastName", lastName);
+    body.append("photoChoice", photoChoice);
+    body.append("contacts", JSON.stringify(selectedContactDetails.map(({ type, value }) => ({ type, value }))));
+    body.append("bio", bio);
+    body.append("pdpaConsent", pdpa);
+    if (photo) body.append("photo", photo);
+
+    return run(async () => {
+      await api("/api/public/submit", { method: "POST", auth: false, headers: { "x-submit-token": submitToken }, body });
+      move(6);
+    });
+  };
+
+  if (step === 6) {
+    return (
+      <Shell>
+        <section className="screen success">
+          <div><Check /></div>
+          <p className="kicker">ส่งข้อมูลสำเร็จ</p>
+          <h1>ขอบพระคุณครับ</h1>
+          <p>ระบบบันทึกข้อมูลสำหรับหนังสืออนุสรณ์เรียบร้อยแล้ว ท่านสามารถตรวจสอบความถูกต้องกับตัวแทนรุ่นของท่านได้ในภายหลัง</p>
+          <a href="/">ทำรายการใหม่</a>
+        </section>
+      </Shell>
+    );
+  }
+
+  return (
+    <Shell>
+      <Progress current={step} />
+      <Alert>{notice}</Alert>
+      {!settings.submissionOpen && <Alert tone="warn">{settings.closedMessage}</Alert>}
+
+      {step === 0 && (
+        <section className="screen welcome-screen">
+          <p className="kicker">หนังสืออนุสรณ์ สภจ. 2569</p>
+          <h1>ยินดีต้อนรับ</h1>
+          <p className="intro">ส่งข้อมูลส่วนตัวสำหรับจัดทำหนังสืออนุสรณ์ สมาคมนิสิตเก่าคณะเภสัชศาสตร์ จุฬาลงกรณ์มหาวิทยาลัย</p>
+          <div className="choice-row">
+            <button className="intent yes" onClick={() => move(1)}><Check /><span>มีความประสงค์</span><small>ส่งข้อมูลเพื่อลงหนังสืออนุสรณ์</small></button>
+            <button className="intent no" onClick={() => move(7)}><X /><span>ไม่มีความประสงค์</span><small>สิ้นสุดขั้นตอนโดยไม่เก็บข้อมูล</small></button>
+          </div>
+        </section>
+      )}
+
+      {step === 1 && (
+        <section className="screen compact">
+          <p className="kicker">ขั้นตอน 1 จาก 6</p>
+          <h2>ระบุรุ่นของท่าน</h2>
+          <p>กรอกเป็นตัวเลข ตั้งแต่ 1 ถึง {settings.maxBatch}</p>
+          <label className="large-field">
+            <span>รุ่น</span>
+            <input inputMode="numeric" maxLength="2" value={batch} onChange={(event) => setBatch(event.target.value.replace(/\D/g, "").slice(0, 2))} autoFocus />
+          </label>
+          <button className="next" disabled={!batch || Number(batch) < 1 || Number(batch) > settings.maxBatch} onClick={() => move(2)}>ถัดไป <ArrowRight /></button>
+        </section>
+      )}
+
+      {step === 2 && (
+        <section className="screen compact">
+          <p className="kicker">รุ่น {batch}</p>
+          <h2>ค้นหาชื่อเดิมสมัยเรียน</h2>
+          <p>กรอกชื่อ หรือนามสกุลเดิมอย่างน้อย 2 ตัวอักษร</p>
+          <form className="search-form" onSubmit={search}>
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="เช่น อนุสรณ์ ทองสะอาด" autoFocus />
+            <button aria-label="ค้นหารายชื่อ" disabled={busy}><Search /></button>
+          </form>
+          <div className="results">
+            {matches.map((item) => (
+              <button key={item.id} className="result" onClick={() => { setSelected(item); move(3); }}>
+                <UserRoundCheck />
+                <span>{item.firstName} {item.lastName}</span>
+                <small>{item.alreadySubmitted ? "ส่งข้อมูลแล้ว" : item.studentId ? `รหัสนิสิต ${item.studentId}` : ""}</small>
+                <ArrowRight />
+              </button>
+            ))}
+          </div>
+          <button className="back" onClick={() => move(1)}><ChevronLeft /> ย้อนกลับ</button>
+        </section>
+      )}
+
+      {step === 3 && !alum && (
+        <section className="screen compact">
+          <p className="kicker">ยืนยันตัวตน</p>
+          <h2>ยืนยันว่าเป็นท่าน</h2>
+          <div className="identity">
+            <span>{selected?.firstName} {selected?.lastName}</span>
+            <small>รุ่น {selected?.batch}</small>
+          </div>
+          <p>เพื่อปกป้องข้อมูลส่วนบุคคล กรุณากรอกเลขท้ายบัตรประชาชน 5 หลัก</p>
+          <form onSubmit={verify}>
+            <label className="large-field">
+              <span>เลขท้ายบัตรประชาชน 5 หลัก</span>
+              <input inputMode="numeric" maxLength="5" value={last5} onChange={(event) => setLast5(event.target.value.replace(/\D/g, "").slice(0, 5))} autoFocus />
+            </label>
+            <button className="next" disabled={last5.length !== 5 || busy}>ยืนยันตัวตน <ShieldCheck /></button>
+          </form>
+          <p className="privacy-note"><ShieldCheck /> ระบบเก็บเลขนี้ในรูปแบบเข้ารหัสทางเดียวเท่านั้น ใช้ตรวจสอบสิทธิ์ และไม่ปรากฏในหนังสือหรือไฟล์สำหรับออกแบบ</p>
+          <button className="back" onClick={() => move(2)}><ChevronLeft /> ย้อนกลับ</button>
+        </section>
+      )}
+
+      {step === 3 && alum && (
+        <section className="screen">
+          <p className="kicker">ข้อมูลสำหรับหนังสืออนุสรณ์</p>
+          <h2>ชื่อที่จะใช้ในหนังสือ</h2>
+          <p>ตรวจสอบชื่อและนามสกุล หากมีการเปลี่ยนแปลงสามารถแก้ไขได้ทันที</p>
+          <div className="two-fields">
+            <Field label="ชื่อ" value={firstName} setValue={setFirstName} />
+            <Field label="นามสกุล" value={lastName} setValue={setLastName} />
+          </div>
+          {nameChanged && <div className="info">ระบบจะเก็บ “{alum.currentFirstName} {alum.currentLastName}” เป็นประวัติชื่อเดิม และใช้ชื่อใหม่ตามที่ระบุ</div>}
+          <label className="bio-field">
+            <span>ข้อความหรือประวัติโดยย่อ <small>(ไม่เกิน {settings.bioMaxLength} ตัวอักษร)</small></span>
+            <textarea value={bio} maxLength={settings.bioMaxLength} rows="4" onChange={(event) => setBio(event.target.value)} placeholder="เช่น ตำแหน่งงานปัจจุบัน หรือข้อความสั้น ๆ ที่ต้องการให้ปรากฏ" />
+            <em>{bio.length}/{settings.bioMaxLength}</em>
+          </label>
+          <div className="purpose">
+            <h3>วัตถุประสงค์ของการจัดทำหนังสือ</h3>
+            <p>เพื่ออัปเดตชื่อ-นามสกุล รูปถ่ายปัจจุบัน และช่องทางติดต่อของนิสิตเก่า โดยท่านกำหนดได้ว่าจะเปิดเผยข้อมูลใดในหนังสือ</p>
+          </div>
+          <button className="next" disabled={!firstName || !lastName} onClick={() => move(4)}>ดำเนินการต่อ <ArrowRight /></button>
+        </section>
+      )}
+
+      {step === 4 && (
+        <section className="screen">
+          <p className="kicker">รูปถ่ายและช่องทางติดต่อ</p>
+          <h2>เลือกข้อมูลที่จะแสดง</h2>
+          <div className="photo-layout">
+            <figure>
+              <img src="/assets/yearbook-photo-example.png" alt="ตัวอย่างภาพถ่ายบุคคลที่เหมาะสม" />
+              <figcaption>ตัวอย่างภาพที่เหมาะสม</figcaption>
+            </figure>
+            <div>
+              <h3>รูปถ่ายสำหรับหนังสือ</h3>
+              <p>ใช้ภาพบุคคลที่เห็นใบหน้าชัด หลีกเลี่ยงภาพหมู่หรือภาพไกล ภาพแนวตั้งและแนวนอนใช้ได้ โดยทีมออกแบบจะครอบภาพเป็นสี่เหลี่ยมจัตุรัส</p>
+              <ul>
+                <li>พื้นหลังเรียบ แสงเพียงพอ</li>
+                <li>ไม่เบลอ และไม่มีสิ่งบังใบหน้า</li>
+                <li>JPG, PNG, WEBP หรือ HEIC ไม่เกิน 10 MB</li>
+              </ul>
+            </div>
+          </div>
+          <div className="toggle-group">
+            <button className={photoChoice === "upload" ? "selected" : ""} onClick={() => setPhotoChoice("upload")}><ImagePlus /> ส่งรูปถ่ายปัจจุบัน</button>
+            <button className={photoChoice === "placeholder" ? "selected" : ""} onClick={() => setPhotoChoice("placeholder")}><Landmark /> ไม่แสดงรูป ใช้ภาพคณะแทน</button>
+          </div>
+          {photoChoice === "upload" && (
+            <label className="file-drop">
+              <Upload />
+              <strong>{photo?.name || (alum?.photo?.downloadUrl ? "มีรูปเดิมอยู่แล้ว — กดเพื่อเปลี่ยนรูป" : "กดเพื่อเลือกรูปภาพ")}</strong>
+              <small>ชื่อไฟล์จะถูกจัดเก็บอ้างอิงจากรหัสนิสิตของท่าน</small>
+              <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" onChange={(event) => setPhoto(event.target.files?.[0] || null)} />
+            </label>
+          )}
+          <h3 className="contact-title">เลือกช่องทางติดต่อที่ต้องการแสดง</h3>
+          <p className="contact-help">เลือกได้มากกว่า 1 ช่องทาง หรือเลือกไม่แสดงข้อมูลติดต่อ</p>
+          <div className="contact-options">
+            {contactOptions.map(([type, label, Icon]) => (
+              <button
+                key={type}
+                className={(type === "none" ? selectedContacts.length === 0 : selectedContacts.includes(type)) ? "selected" : ""}
+                onClick={() => type === "none"
+                  ? setSelectedContacts([])
+                  : setSelectedContacts((current) => current.includes(type) ? current.filter((item) => item !== type) : [...current, type])}
+              >
+                <Icon />{label}
+              </button>
+            ))}
+          </div>
+          {selectedContactDetails.map((contact) => (
+            <Field key={contact.type} label={contact.label} value={contact.value} setValue={(value) => setContactValues({ ...contactValues, [contact.type]: value })} />
+          ))}
+          <button className="next" onClick={() => move(5)}>ตรวจสอบข้อมูล <ArrowRight /></button>
+          <button className="back" onClick={() => move(3)}><ChevronLeft /> ย้อนกลับ</button>
+        </section>
+      )}
+
+      {step === 5 && (
+        <section className="screen">
+          <p className="kicker">ยืนยันก่อนส่ง</p>
+          <h2>ตรวจสอบข้อมูลของท่าน</h2>
+          <div className="review">
+            <Review label="ชื่อในหนังสือ" value={`${firstName} ${lastName}`} />
+            <Review label="รูปภาพ" value={photoChoice === "placeholder" ? "ไม่แสดงรูป ใช้ภาพคณะแทน" : photo?.name || (alum?.photo?.downloadUrl ? "ใช้รูปเดิมที่เคยส่งไว้" : "ยังไม่ได้เลือกรูป")} />
+            <Review label="ช่องทางติดต่อ" value={selectedContactDetails.length ? selectedContactDetails.map((item) => `${item.label}: ${item.value}`).join(" | ") : "ไม่ประสงค์แสดง"} />
+            <Review label="ประวัติโดยย่อ" value={bio || "ไม่ระบุ"} />
+          </div>
+          <div className="pdpa">
+            <h3>การให้ความยินยอมในการเปิดเผยข้อมูลส่วนบุคคล</h3>
+            <p>ข้าพเจ้ายินยอมให้เปิดเผยชื่อ นามสกุล ภาพถ่าย (ถ้ามี) และช่องทางติดต่อ (ถ้ามี) ในหนังสืออนุสรณ์ สภจ. 2569</p>
+            <div>
+              <button className={pdpa === "yes" ? "consent yes" : "consent"} onClick={() => setPdpa("yes")}><Check /> ยินยอม</button>
+              <button className={pdpa === "no" ? "consent no" : "consent"} onClick={() => setPdpa("no")}><X /> ไม่ยินยอม</button>
+            </div>
+            {pdpa === "no" && <p className="decline-copy">หากไม่ยินยอม ระบบจะไม่บันทึกข้อมูลเพื่อใช้ในหนังสืออนุสรณ์</p>}
+          </div>
+          <form onSubmit={submit}>
+            <button className="submit" disabled={busy || pdpa !== "yes"}>ยืนยันและส่งข้อมูล <Check /></button>
+          </form>
+          <button className="back" onClick={() => move(4)}><ChevronLeft /> ย้อนกลับ</button>
+        </section>
+      )}
+
+      {step === 7 && (
+        <section className="screen thank">
+          <h1>ขอบพระคุณครับ</h1>
+          <p>ระบบสิ้นสุดขั้นตอนตามความประสงค์ของท่าน โดยไม่มีการบันทึกข้อมูลสำหรับหนังสืออนุสรณ์</p>
+          <a href="/">กลับสู่หน้าแรก</a>
+        </section>
+      )}
+    </Shell>
+  );
+}
+
+function Progress({ current }) {
+  return (
+    <ol className="progress">
+      {steps.map((label, index) => (
+        <li className={index <= current ? "active" : ""} key={label}>
+          <i>{index + 1}</i>
+          <span>{label}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}

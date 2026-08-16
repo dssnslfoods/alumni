@@ -1,0 +1,257 @@
+import express from "express";
+import { config } from "../lib/env.js";
+import { generatePassword } from "../lib/crypto.js";
+import { badRequest, forbidden, notFound, route } from "../lib/http.js";
+import { audit } from "../lib/audit.js";
+import { multipartBody } from "../lib/multipart.js";
+import { listDocs } from "../lib/db.js";
+import { assertBatchAccess, loadUser, requireAuth, requireFreshPassword, requirePermission } from "../middleware/auth.js";
+import {
+  ROLES,
+  assertCanManage,
+  createUser,
+  deleteUser,
+  findUserById,
+  listUsers,
+  normalizeBatchScope,
+  publicUser,
+  roleLevel,
+  setPassword,
+  updateUser,
+  validateUsername
+} from "../domain/users.js";
+import {
+  STATUSES,
+  alumniSummary,
+  alumniView,
+  appendNameHistory,
+  findAlumniById,
+  listAlumni,
+  normalizeText,
+  parseBatch,
+  saveAlumni,
+  syncSubmission,
+  validateContacts
+} from "../domain/alumni.js";
+import { buildExportWorkbook, buildImportTemplate, importAlumniWorkbook } from "../domain/excel.js";
+import { getSettings, updateSettings } from "../domain/settings.js";
+
+const router = express.Router();
+
+router.use(loadUser, requireAuth, requireFreshPassword);
+
+/* ------------------------------- dashboard ------------------------------- */
+
+router.get("/summary", requirePermission("alumni.read"), route(async (req, res) => {
+  const summary = await alumniSummary();
+  if (req.user.batchScope?.length) {
+    summary.byBatch = summary.byBatch.filter((item) => req.user.batchScope.includes(item.batch));
+  }
+  const [userCount, lastImports] = await Promise.all([
+    listUsers({ limit: 500 }).then((users) => users.length),
+    listDocs(config.collections.importJobs, { orderBy: ["startedAt", "desc"], limit: 5 })
+  ]);
+  res.json({ ...summary, userCount, lastImports });
+}));
+
+/* ------------------------------ user accounts ---------------------------- */
+
+router.get("/users", requirePermission("users.manage"), route(async (_req, res) => {
+  const users = await listUsers({ limit: 500 });
+  res.json({ users: users.map(publicUser), roles: Object.entries(ROLES).map(([name, meta]) => ({ name, ...meta })) });
+}));
+
+router.post("/users", requirePermission("users.manage"), route(async (req, res) => {
+  const role = String(req.body?.role || "").trim();
+  assertCanManage(req.user, role);
+
+  const username = validateUsername(req.body?.username);
+  const password = String(req.body?.password || "").trim() || generatePassword(14);
+  const alumniId = String(req.body?.alumniId || "").trim() || null;
+
+  if (role === "alumni") {
+    if (!alumniId) throw badRequest("บัญชีนิสิตเก่าต้องระบุรหัสระเบียนนิสิตเก่า");
+    const record = await findAlumniById(alumniId);
+    if (!record) throw notFound("ไม่พบระเบียนนิสิตเก่าที่ระบุ");
+  }
+
+  const user = await createUser({
+    username,
+    password,
+    displayName: req.body?.displayName,
+    email: req.body?.email,
+    role,
+    batchScope: req.body?.batchScope,
+    alumniId,
+    mustChangePassword: req.body?.mustChangePassword !== false,
+    createdBy: req.user.uid
+  });
+
+  await audit(req, "users.create", { targetType: "user", targetId: user.id, meta: { role, username } });
+  // The generated password is returned exactly once and never stored in clear text.
+  res.status(201).json({ user: publicUser(user), initialPassword: req.body?.password ? null : password });
+}));
+
+router.patch("/users/:uid", requirePermission("users.manage"), route(async (req, res) => {
+  const target = await findUserById(req.params.uid);
+  if (!target) throw notFound("ไม่พบบัญชีผู้ใช้");
+  if (target.id === req.user.uid && req.body?.status === "suspended") throw badRequest("ไม่สามารถระงับบัญชีของตนเองได้");
+  if (roleLevel(target.role) >= roleLevel(req.user.role) && target.id !== req.user.uid) throw forbidden("ไม่สามารถแก้ไขบัญชีที่มีสิทธิ์เท่ากันหรือสูงกว่า");
+
+  const patch = {};
+  if (req.body?.displayName !== undefined) patch.displayName = normalizeText(req.body.displayName);
+  if (req.body?.email !== undefined) patch.email = String(req.body.email || "").trim().toLowerCase();
+  if (req.body?.status !== undefined) {
+    if (!["active", "suspended"].includes(req.body.status)) throw badRequest("สถานะบัญชีไม่ถูกต้อง");
+    patch.status = req.body.status;
+  }
+  if (req.body?.batchScope !== undefined) patch.batchScope = normalizeBatchScope(req.body.batchScope);
+  if (req.body?.role !== undefined && req.body.role !== target.role) {
+    assertCanManage(req.user, req.body.role);
+    patch.role = req.body.role;
+    patch.tokenVersion = (target.tokenVersion || 1) + 1;
+  }
+
+  const updated = await updateUser(target.id, patch, req.user.uid);
+  await audit(req, "users.update", { targetType: "user", targetId: target.id, meta: { fields: Object.keys(patch) } });
+  res.json({ user: publicUser(updated) });
+}));
+
+router.post("/users/:uid/reset-password", requirePermission("users.manage"), route(async (req, res) => {
+  const target = await findUserById(req.params.uid);
+  if (!target) throw notFound("ไม่พบบัญชีผู้ใช้");
+  if (roleLevel(target.role) >= roleLevel(req.user.role)) throw forbidden("ไม่สามารถรีเซ็ตรหัสผ่านของบัญชีที่มีสิทธิ์เท่ากันหรือสูงกว่า");
+
+  const password = String(req.body?.password || "").trim() || generatePassword(14);
+  await setPassword(target.id, password, { mustChangePassword: true, actorUid: req.user.uid });
+  await audit(req, "users.resetPassword", { targetType: "user", targetId: target.id });
+  res.json({ ok: true, temporaryPassword: req.body?.password ? null : password });
+}));
+
+router.delete("/users/:uid", requirePermission("users.manage"), route(async (req, res) => {
+  const target = await findUserById(req.params.uid);
+  if (!target) throw notFound("ไม่พบบัญชีผู้ใช้");
+  if (target.id === req.user.uid) throw badRequest("ไม่สามารถลบบัญชีของตนเองได้");
+  if (roleLevel(target.role) >= roleLevel(req.user.role)) throw forbidden("ไม่สามารถลบบัญชีที่มีสิทธิ์เท่ากันหรือสูงกว่า");
+  await deleteUser(target.id);
+  await audit(req, "users.delete", { targetType: "user", targetId: target.id, meta: { username: target.username } });
+  res.json({ ok: true });
+}));
+
+/* ------------------------------ alumni records --------------------------- */
+
+router.get("/alumni", requirePermission("alumni.read"), route(async (req, res) => {
+  const batch = req.query.batch ? parseBatch(req.query.batch) : null;
+  if (batch) assertBatchAccess(req.user, batch);
+  if (!batch && req.user.batchScope?.length) throw badRequest("กรุณาระบุรุ่นที่ต้องการดู");
+  const status = STATUSES.includes(String(req.query.status)) ? String(req.query.status) : undefined;
+  const records = await listAlumni({
+    batch: batch || undefined,
+    status,
+    query: req.query.q ? String(req.query.q) : undefined,
+    limit: Math.min(Number(req.query.limit) || 100, 500),
+    offset: Number(req.query.offset) || 0
+  });
+  res.json({ records: records.map(alumniView) });
+}));
+
+router.get("/alumni/:id", requirePermission("alumni.read"), route(async (req, res) => {
+  const record = await findAlumniById(req.params.id);
+  if (!record) throw notFound("ไม่พบระเบียนนิสิตเก่า");
+  assertBatchAccess(req.user, record.batch);
+  res.json({ record: alumniView(record) });
+}));
+
+router.patch("/alumni/:id", requirePermission("alumni.write"), route(async (req, res) => {
+  const record = await findAlumniById(req.params.id);
+  if (!record) throw notFound("ไม่พบระเบียนนิสิตเก่า");
+  assertBatchAccess(req.user, record.batch);
+
+  const patch = { updatedBy: req.user.username };
+  if (req.body?.currentFirstName !== undefined || req.body?.currentLastName !== undefined) {
+    const firstName = normalizeText(req.body.currentFirstName ?? record.currentFirstName);
+    const lastName = normalizeText(req.body.currentLastName ?? record.currentLastName);
+    if (!firstName || !lastName) throw badRequest("ต้องระบุทั้งชื่อและนามสกุล");
+    patch.nameHistory = appendNameHistory(record, firstName, lastName, req.user.username);
+    patch.currentFirstName = firstName;
+    patch.currentLastName = lastName;
+  }
+  if (req.body?.bio !== undefined) patch.bio = normalizeText(req.body.bio).slice(0, 500);
+  if (req.body?.contacts !== undefined) patch.contacts = validateContacts(req.body.contacts);
+  if (req.body?.status !== undefined) {
+    if (!STATUSES.includes(req.body.status)) throw badRequest("สถานะไม่ถูกต้อง");
+    patch.status = req.body.status;
+  }
+  if (req.body?.reviewNote !== undefined) patch.reviewNote = normalizeText(req.body.reviewNote).slice(0, 500);
+  patch.reviewedBy = req.user.username;
+
+  const updated = await saveAlumni(record.id, patch);
+  await syncSubmission({ ...record, ...updated });
+  await audit(req, "alumni.update", { targetType: "alumni", targetId: record.id, meta: { fields: Object.keys(patch) } });
+  res.json({ record: alumniView(updated) });
+}));
+
+/* -------------------------------- import --------------------------------- */
+
+router.get("/import/template.xlsx", requirePermission("alumni.import"), route(async (_req, res) => {
+  res.setHeader("Content-Disposition", "attachment; filename=alumni-import-template.xlsx");
+  res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").send(Buffer.from(await buildImportTemplate()));
+}));
+
+router.post("/import", requirePermission("alumni.import"), multipartBody({ maxFiles: 1 }), route(async (req, res) => {
+  const file = req.files?.file;
+  if (!file?.buffer?.length) throw badRequest("ไม่พบไฟล์ Excel ที่อัปโหลด");
+  const job = await importAlumniWorkbook({
+    buffer: file.buffer,
+    filename: file.filename,
+    actor: req.user,
+    dryRun: String(req.body?.dryRun) === "true"
+  });
+  await audit(req, job.dryRun ? "alumni.import.preview" : "alumni.import", {
+    targetType: "importJob",
+    targetId: job.jobId,
+    meta: { totalRows: job.totalRows, inserted: job.inserted, updated: job.updated, skipped: job.skipped }
+  });
+  res.json({ job });
+}));
+
+router.get("/import/jobs", requirePermission("alumni.import"), route(async (_req, res) => {
+  const jobs = await listDocs(config.collections.importJobs, { orderBy: ["startedAt", "desc"], limit: 25 });
+  res.json({ jobs });
+}));
+
+/* -------------------------------- export --------------------------------- */
+
+router.get("/export.xlsx", requirePermission("alumni.export"), route(async (req, res) => {
+  const batch = req.query.batch ? parseBatch(req.query.batch) : null;
+  if (batch) assertBatchAccess(req.user, batch);
+  const records = await listAlumni({ batch: batch || undefined, status: STATUSES.includes(String(req.query.status)) ? String(req.query.status) : undefined, limit: 20000 });
+  await audit(req, "alumni.export", { meta: { count: records.length, batch: batch || "all" } });
+  res.setHeader("Content-Disposition", `attachment; filename=yearbook-2569${batch ? `-batch-${batch}` : ""}.xlsx`);
+  res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").send(Buffer.from(await buildExportWorkbook(records)));
+}));
+
+/* ------------------------------- settings -------------------------------- */
+
+router.get("/settings", requirePermission("settings.manage"), route(async (_req, res) => {
+  res.json({ settings: await getSettings() });
+}));
+
+router.put("/settings", requirePermission("settings.manage"), route(async (req, res) => {
+  const settings = await updateSettings(req.body || {}, req.user);
+  await audit(req, "settings.update", { meta: { fields: Object.keys(req.body || {}) } });
+  res.json({ settings });
+}));
+
+/* ------------------------------- audit log ------------------------------- */
+
+router.get("/audit", requirePermission("audit.read"), route(async (req, res) => {
+  const logs = await listDocs(config.collections.auditLogs, {
+    where: req.query.action ? [["action", "==", String(req.query.action)]] : [],
+    orderBy: ["at", "desc"],
+    limit: Math.min(Number(req.query.limit) || 100, 500)
+  });
+  res.json({ logs });
+}));
+
+export default router;

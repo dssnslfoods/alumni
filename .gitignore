@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+*.local
+firebase-service-account*.json
+
+# ข้อมูลที่สร้างตอนรันบนเครื่อง — ห้าม commit (มีข้อมูลส่วนบุคคลและ secret)
+data/db/
+data/.dev-secrets.json
+data/imports/
+uploads/*
+!uploads/.gitkeep
+.firebase/
+
+.DS_Store
