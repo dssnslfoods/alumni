@@ -28,6 +28,7 @@ import {
   appendNameHistory,
   findAlumniById,
   listAlumni,
+  listAllAlumni,
   normalizeText,
   parseBatch,
   saveAlumni,
@@ -155,14 +156,20 @@ router.get("/alumni", requirePermission("alumni.read"), route(async (req, res) =
   if (batch) assertBatchAccess(req.user, batch);
   if (!batch && req.user.batchScope?.length) throw badRequest("กรุณาระบุรุ่นที่ต้องการดู");
   const status = STATUSES.includes(String(req.query.status)) ? String(req.query.status) : undefined;
-  const records = await listAlumni({
+  const page = await listAlumni({
     batch: batch || undefined,
     status,
     query: req.query.q ? String(req.query.q) : undefined,
-    limit: Math.min(Number(req.query.limit) || 100, 500),
-    offset: Number(req.query.offset) || 0
+    limit: Math.min(Math.max(Number(req.query.limit) || 100, 1), 1000),
+    offset: Math.max(Number(req.query.offset) || 0, 0)
   });
-  res.json({ records: records.map(alumniView) });
+  res.json({
+    records: page.records.map(alumniView),
+    total: page.total,
+    offset: page.offset,
+    limit: page.limit,
+    searched: page.searched
+  });
 }));
 
 router.get("/alumni/:id", requirePermission("alumni.read"), route(async (req, res) => {
@@ -209,7 +216,7 @@ router.patch("/alumni/:id", requirePermission("alumni.write"), route(async (req,
  */
 router.get("/import/template.xlsx", requirePermission("alumni.import"), route(async (req, res) => {
   const requested = Number(req.query.rows) || 0;
-  const rows = requested > 0 ? generateSampleRows(Math.min(requested, 10000)) : [];
+  const rows = requested > 0 ? generateSampleRows(Math.min(requested, 20000)) : [];
   const filename = rows.length ? `alumni-sample-${rows.length}.xlsx` : "alumni-import-template.xlsx";
   res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
   res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").send(Buffer.from(await buildImportTemplate({ rows })));
@@ -305,7 +312,7 @@ router.get("/export.xlsx", requirePermission("alumni.export"), route(async (req,
   const includeOutreach = String(req.query.includeOutreach) === "true";
   if (includeOutreach && !can(req.user, "alumni.write")) throw forbidden("ไม่มีสิทธิ์ส่งออกข้อมูลติดต่อสำหรับติดตาม");
 
-  const records = await listAlumni({ batch: batch || undefined, status: STATUSES.includes(String(req.query.status)) ? String(req.query.status) : undefined, limit: 20000 });
+  const records = await listAllAlumni({ batch: batch || undefined, status: STATUSES.includes(String(req.query.status)) ? String(req.query.status) : undefined });
   await audit(req, "alumni.export", { meta: { count: records.length, batch: batch || "all", includeOutreach } });
   res.setHeader("Content-Disposition", `attachment; filename=yearbook-2569${batch ? `-batch-${batch}` : ""}${includeOutreach ? "-followup" : ""}.xlsx`);
   res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").send(Buffer.from(await buildExportWorkbook(records, { includeOutreach })));

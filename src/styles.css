@@ -124,3 +124,11 @@ header strong,header span { display:block; } header strong { font-size:1.03rem; 
 .progress-panel small { display:block; margin-top:9px; color:var(--muted); font-size:.88rem; line-height:1.6; }
 @keyframes slide { 0% { margin-left:-38%; } 100% { margin-left:100%; } }
 @media (prefers-reduced-motion:reduce) { .progress-fill { transition:none; } .progress-fill.indeterminate { animation-duration:2.4s; } }
+
+/* ---------- แถบแบ่งหน้า ---------- */
+.pager { display:flex; flex-wrap:wrap; gap:12px; justify-content:space-between; align-items:center; margin:16px 0 4px; padding:11px 14px; border:1px solid #e0e6da; background:#f8faf5; }
+.pager > span { color:var(--muted); font-size:.95rem; }
+.pager strong { color:var(--deep); font-variant-numeric:tabular-nums; }
+.pager-buttons { display:flex; gap:8px; }
+.pager-buttons button { min-height:38px; padding:0 14px; font-size:.92rem; }
+.pager-buttons button:disabled { cursor:not-allowed; opacity:.4; }

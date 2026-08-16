@@ -195,7 +195,7 @@ export async function alumniSummary() {
     countDocs(ALUMNI, [["status", "==", "pending"]]),
     countDocs(ALUMNI, [["status", "==", "declined"]])
   ]);
-  const submittedRecords = await listDocs(ALUMNI, { where: [["status", "==", "submitted"]], limit: 20000 });
+  const submittedRecords = await listDocs(ALUMNI, { where: [["status", "==", "submitted"]], limit: 60000 });
   const byBatch = new Map();
   submittedRecords.forEach((record) => byBatch.set(record.batch, (byBatch.get(record.batch) || 0) + 1));
   return {
@@ -210,14 +210,71 @@ export async function alumniSummary() {
   };
 }
 
+/**
+ * Administrator listing with real pagination.
+ *
+ * Browsing (no search term) pages straight through Firestore with
+ * offset/limit and a separate count, so the number of records the console can
+ * reach is not capped — 10,000+ pages fine. Searching uses indexed prefix
+ * queries rather than pulling the collection into memory to filter it.
+ */
 export async function listAlumni({ batch, status, query, limit = 100, offset = 0 } = {}) {
   const where = [];
   if (batch) where.push(["batch", "==", batch]);
   if (status) where.push(["status", "==", status]);
-  const records = await listDocs(ALUMNI, { where, limit: query ? 2000 : limit, offset: query ? 0 : offset });
-  if (!query) return records;
+
+  if (!query) {
+    const [records, total] = await Promise.all([
+      listDocs(ALUMNI, { where, limit, offset }),
+      countDocs(ALUMNI, where)
+    ]);
+    return { records, total, offset, limit, searched: false };
+  }
+
+  const matches = await searchAlumniRecords({ batch, status, query });
+  return { records: matches.slice(offset, offset + limit), total: matches.length, offset, limit, searched: true };
+}
+
+/** Indexed prefix search across names and student codes. */
+async function searchAlumniRecords({ batch, status, query, cap = 5000 }) {
+  const base = batch ? [["batch", "==", batch]] : [];
   const key = searchKey(query);
-  return records
-    .filter((record) => `${record.searchFirst}${record.searchLast}${record.studentId}`.includes(key))
-    .slice(offset, offset + limit);
+  const digits = onlyDigits(query);
+  const found = new Map();
+
+  const queries = [];
+  if (digits.length >= 3) {
+    queries.push(listDocs(ALUMNI, {
+      where: [...base, ["studentId", ">=", digits], ["studentId", "<=", `${digits}\uf8ff`]],
+      orderBy: ["studentId"],
+      limit: cap
+    }));
+  }
+  if (key.length >= 2) {
+    queries.push(
+      listDocs(ALUMNI, { where: [...base, ["searchFirst", ">=", key], ["searchFirst", "<=", `${key}\uf8ff`]], orderBy: ["searchFirst"], limit: cap }),
+      listDocs(ALUMNI, { where: [...base, ["searchLast", ">=", key], ["searchLast", "<=", `${key}\uf8ff`]], orderBy: ["searchLast"], limit: cap })
+    );
+  }
+  if (!queries.length) return [];
+
+  (await Promise.all(queries)).flat().forEach((record) => found.set(record.id, record));
+  const results = [...found.values()];
+  return status ? results.filter((record) => record.status === status) : results;
+}
+
+/** Every matching record, for export. Pages through in blocks rather than one huge read. */
+export async function listAllAlumni({ batch, status } = {}) {
+  const where = [];
+  if (batch) where.push(["batch", "==", batch]);
+  if (status) where.push(["status", "==", status]);
+
+  const all = [];
+  const PAGE = 2000;
+  for (let offset = 0; ; offset += PAGE) {
+    const page = await listDocs(ALUMNI, { where, limit: PAGE, offset });
+    all.push(...page);
+    if (page.length < PAGE) break;
+  }
+  return all;
 }

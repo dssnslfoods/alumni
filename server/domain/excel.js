@@ -412,11 +412,12 @@ export async function buildImportTemplate({ rows = [] } = {}) {
 
   rows.forEach((row) => sheet.addRow(row));
 
-  // Validation on 2,000 blank rows — enough for the largest batch, and the
-  // rules survive copy-paste from the association's own spreadsheet.
+  // Validation covers 12,000 blank rows so a full 10,000-person roster can be
+  // pasted in and still get the input checks. Rows beyond this still import
+  // fine — the validation is an Excel-side typing aid, not a limit.
   const batchColumn = TEMPLATE_COLUMNS.findIndex((column) => column.header === "รุ่น") + 1;
   const idColumn = TEMPLATE_COLUMNS.findIndex((column) => column.header === "เลขท้ายบัตรประชาชน 5 หลัก") + 1;
-  for (let row = 2; row <= 2000; row += 1) {
+  for (let row = 2; row <= 12000; row += 1) {
     sheet.getCell(row, batchColumn).dataValidation = {
       type: "whole",
       operator: "between",

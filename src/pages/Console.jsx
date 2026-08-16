@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ChevronLeft,
+  ChevronRight,
   ClipboardList,
   Download,
   FileSpreadsheet,
@@ -148,20 +150,41 @@ function Overview() {
 
 function AlumniTable({ user }) {
   const scoped = user.batchScope?.length ? user.batchScope : null;
+  const [settings, setSettings] = useState({ maxBatch: 88 });
   const [batch, setBatch] = useState(scoped ? String(scoped[0]) : "");
   const [status, setStatus] = useState("");
   const [query, setQuery] = useState("");
   const [applied, setApplied] = useState({ batch: scoped ? String(scoped[0]) : "", status: "", query: "" });
   const [message, setMessage] = useState("");
+  const [pageSize, setPageSize] = useState(200);
+  const [offset, setOffset] = useState(0);
+
+  useEffect(() => {
+    api("/api/public/settings", { auth: false }).then(setSettings).catch(() => {});
+  }, []);
+
+  const batchOptions = scoped || Array.from({ length: settings.maxBatch }, (_, index) => index + 1);
+
+  // Nothing is fetched until the administrator narrows the view. With 10,000+
+  // records, loading "everything" by default is slow and rarely what is wanted.
+  const criteriaReady = Boolean(applied.batch) || applied.query.trim().length >= 2;
 
   const { loading, data, error, reload } = useAsync(() => {
+    if (!criteriaReady) return Promise.resolve(null);
     const params = new URLSearchParams();
     if (applied.batch) params.set("batch", applied.batch);
     if (applied.status) params.set("status", applied.status);
-    if (applied.query) params.set("q", applied.query);
-    params.set("limit", "200");
+    if (applied.query.trim()) params.set("q", applied.query.trim());
+    params.set("limit", String(pageSize));
+    params.set("offset", String(offset));
     return api(`/api/admin/alumni?${params}`);
-  }, [applied]);
+  }, [applied, pageSize, offset, criteriaReady]);
+
+  const total = data?.total ?? 0;
+  const shown = data?.records?.length ?? 0;
+  const from = total === 0 ? 0 : offset + 1;
+  const to = offset + shown;
+  const thai = (value) => Number(value || 0).toLocaleString("th-TH");
 
   async function updateStatus(record, nextStatus) {
     setMessage("");
@@ -178,56 +201,90 @@ function AlumniTable({ user }) {
     <div className="panel">
       <div className="panel-head">
         <h3>รายชื่อนิสิตเก่า</h3>
-        <button className="ghost" onClick={reload}><RefreshCw /> รีเฟรช</button>
+        {criteriaReady && <button className="ghost" onClick={reload}><RefreshCw /> รีเฟรช</button>}
       </div>
 
-      <form className="filters" onSubmit={(event) => { event.preventDefault(); setApplied({ batch, status, query }); }}>
-        {scoped ? (
-          <label className="field"><span>รุ่น</span>
-            <select value={batch} onChange={(event) => setBatch(event.target.value)}>
-              {scoped.map((item) => <option key={item} value={item}>รุ่น {item}</option>)}
-            </select>
-          </label>
-        ) : (
-          <Field label="รุ่น" value={batch} setValue={(value) => setBatch(value.replace(/\D/g, "").slice(0, 2))} placeholder="ทุกรุ่น" inputMode="numeric" />
-        )}
+      <p className="panel-note">
+        เลือก<strong>รุ่น</strong> หรือพิมพ์<strong>ชื่อ/รหัสนิสิต</strong>อย่างน้อย 2 ตัวอักษร แล้วกดค้นหา —
+        ระบบจะดึงเฉพาะข้อมูลที่ตรงเงื่อนไข ไม่ดึงทั้งฐานข้อมูลขึ้นมา
+      </p>
+
+      <form
+        className="filters"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setOffset(0);
+          setApplied({ batch, status, query });
+        }}
+      >
+        <label className="field"><span>รุ่น</span>
+          <select value={batch} onChange={(event) => setBatch(event.target.value)}>
+            {!scoped && <option value="">— เลือกรุ่น —</option>}
+            {batchOptions.map((item) => <option key={item} value={item}>รุ่น {item}</option>)}
+          </select>
+        </label>
         <label className="field"><span>สถานะ</span>
           <select value={status} onChange={(event) => setStatus(event.target.value)}>
             <option value="">ทุกสถานะ</option>
             {Object.entries(STATUS_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select>
         </label>
-        <Field label="ค้นหาชื่อ / รหัสนิสิต" value={query} setValue={setQuery} placeholder="เช่น สมชาย" />
-        <button className="next compact-btn">ค้นหา</button>
+        <Field label="ค้นหาชื่อ / รหัสนิสิต" value={query} setValue={setQuery} placeholder="เช่น สมชาย หรือ 4500012" />
+        <label className="field"><span>แสดงต่อหน้า</span>
+          <select value={pageSize} onChange={(event) => { setOffset(0); setPageSize(Number(event.target.value)); }}>
+            {[100, 200, 500, 1000].map((size) => <option key={size} value={size}>{size} รายการ</option>)}
+          </select>
+        </label>
+        <button className="next compact-btn" disabled={!batch && query.trim().length < 2}>ค้นหา</button>
       </form>
 
       <Alert>{error}</Alert>
       {message && <Alert tone="ok">{message}</Alert>}
 
-      {loading ? <p className="console-loading">กำลังโหลด…</p> : (
-        <table className="data-table">
-          <thead>
-            <tr><th>รุ่น</th><th>ชื่อสมัยเรียน</th><th>ชื่อในหนังสือ</th><th>สถานะ</th><th>รูป</th><th>ติดต่อ</th><th>จัดการ</th></tr>
-          </thead>
-          <tbody>
-            {(data?.records || []).map((record) => (
-              <tr key={record.id}>
-                <td>{record.batch}</td>
-                <td>{record.legalFirstName} {record.legalLastName}<br /><small>{record.studentId}</small></td>
-                <td>{record.currentFirstName} {record.currentLastName}</td>
-                <td><span className={`status-chip status-${record.status}`}>{STATUS_LABELS[record.status]}</span></td>
-                <td>{record.photo?.downloadUrl ? <a href={record.photo.downloadUrl} target="_blank" rel="noreferrer">ดูรูป</a> : record.photo?.choice === "placeholder" ? "ใช้ภาพคณะ" : "—"}</td>
-                <td>{(record.contacts || []).map((contact) => contact.type).join(", ") || "—"}</td>
-                <td>
-                  <select value={record.status} onChange={(event) => updateStatus(record, event.target.value)}>
-                    {Object.entries(STATUS_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-                  </select>
-                </td>
-              </tr>
-            ))}
-            {!data?.records?.length && <tr><td colSpan="7" className="empty">ไม่พบข้อมูลตามเงื่อนไข</td></tr>}
-          </tbody>
-        </table>
+      {!criteriaReady ? (
+        <p className="empty">ยังไม่ได้ระบุเงื่อนไข — กรุณาเลือกรุ่น หรือพิมพ์ชื่อที่ต้องการค้นหา แล้วกดปุ่มค้นหา</p>
+      ) : loading ? (
+        <p className="console-loading">กำลังโหลด…</p>
+      ) : (
+        <>
+          <div className="pager">
+            <span>
+              {total === 0 ? "ไม่พบข้อมูลตามเงื่อนไข" : <>แสดง <strong>{thai(from)}–{thai(to)}</strong> จากทั้งหมด <strong>{thai(total)}</strong> รายการ</>}
+            </span>
+            <div className="pager-buttons">
+              <button className="ghost" disabled={offset === 0} onClick={() => setOffset(Math.max(offset - pageSize, 0))}>
+                <ChevronLeft /> ก่อนหน้า
+              </button>
+              <button className="ghost" disabled={to >= total} onClick={() => setOffset(offset + pageSize)}>
+                ถัดไป <ChevronRight />
+              </button>
+            </div>
+          </div>
+
+          <table className="data-table">
+            <thead>
+              <tr><th>รุ่น</th><th>ชื่อสมัยเรียน</th><th>ชื่อในหนังสือ</th><th>สถานะ</th><th>รูป</th><th>ติดต่อ</th><th>จัดการ</th></tr>
+            </thead>
+            <tbody>
+              {(data?.records || []).map((record) => (
+                <tr key={record.id}>
+                  <td>{record.batch}</td>
+                  <td>{record.legalFirstName} {record.legalLastName}<br /><small>{record.studentId}</small></td>
+                  <td>{record.currentFirstName} {record.currentLastName}</td>
+                  <td><span className={`status-chip status-${record.status}`}>{STATUS_LABELS[record.status]}</span></td>
+                  <td>{record.photo?.downloadUrl ? <a href={record.photo.downloadUrl} target="_blank" rel="noreferrer">ดูรูป</a> : record.photo?.choice === "placeholder" ? "ใช้ภาพคณะ" : "—"}</td>
+                  <td>{(record.contacts || []).map((contact) => contact.type).join(", ") || "—"}</td>
+                  <td>
+                    <select value={record.status} onChange={(event) => updateStatus(record, event.target.value)}>
+                      {Object.entries(STATUS_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                    </select>
+                  </td>
+                </tr>
+              ))}
+              {!data?.records?.length && <tr><td colSpan="7" className="empty">ไม่พบข้อมูลตามเงื่อนไข</td></tr>}
+            </tbody>
+          </table>
+        </>
       )}
     </div>
   );

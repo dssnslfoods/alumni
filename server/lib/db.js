@@ -76,6 +76,9 @@ function matches(document, [field, operator, expected]) {
 
 function localQuery(collection, { where = [], orderBy, limit, offset = 0 } = {}) {
   let results = Object.values(readLocal(collection)).filter((document) => where.every((clause) => matches(document, clause)));
+  // Firestore falls back to document-id order when no orderBy is given; match
+  // that here so paging through pages behaves identically on both backends.
+  if (!orderBy) results.sort((left, right) => String(left.id).localeCompare(String(right.id)));
   if (orderBy) {
     const [field, direction = "asc"] = orderBy;
     results.sort((left, right) => {
