@@ -323,7 +323,10 @@ const EXPORT_COLUMNS = [
   ["สถานะ", (record) => ({ submitted: "ยืนยันลงหนังสือ", declined: "ไม่ประสงค์ลงหนังสือ", pending: "ยังไม่ตอบ" }[record.status] || record.status)],
   ["รูปภาพ", (record) => (record.photo?.choice === "upload" ? "ส่งรูปแล้ว" : record.photo?.choice === "placeholder" ? "ใช้ภาพคณะแทน" : "")],
   ["ลิงก์รูปภาพ", (record) => record.photo?.downloadUrl || ""],
-  ["ช่องทางติดต่อ", (record) => (record.contacts || []).map((contact) => `${contact.type}: ${contact.value}`).join(" | ")],
+  ["Facebook", (record) => (record.contacts || []).find((contact) => contact.type === "facebook")?.value || ""],
+  ["Instagram", (record) => (record.contacts || []).find((contact) => contact.type === "instagram")?.value || ""],
+  ["LINE", (record) => (record.contacts || []).find((contact) => contact.type === "line")?.value || ""],
+  ["โทรศัพท์", (record) => (record.contacts || []).find((contact) => contact.type === "phone")?.value || ""],
   ["ประวัติโดยย่อ", (record) => record.bio || ""],
   ["PDPA", (record) => (record.pdpa?.consent ? "ยินยอม" : "ยังไม่ยินยอม")],
   ["เวลาที่ยินยอม", (record) => record.pdpa?.consentAt || ""],
@@ -415,28 +418,35 @@ export async function buildImportTemplate({ rows = [] } = {}) {
   // Validation covers 12,000 blank rows so a full 10,000-person roster can be
   // pasted in and still get the input checks. Rows beyond this still import
   // fine — the validation is an Excel-side typing aid, not a limit.
-  const batchColumn = TEMPLATE_COLUMNS.findIndex((column) => column.header === "รุ่น") + 1;
-  const idColumn = TEMPLATE_COLUMNS.findIndex((column) => column.header === "เลขท้ายบัตรประชาชน 5 หลัก") + 1;
-  for (let row = 2; row <= 12000; row += 1) {
-    sheet.getCell(row, batchColumn).dataValidation = {
-      type: "whole",
-      operator: "between",
-      formulae: [1, config.maxBatch],
-      allowBlank: true,
-      showErrorMessage: true,
-      errorTitle: "รุ่นไม่ถูกต้อง",
-      error: `กรุณากรอกรุ่นเป็นตัวเลข 1 ถึง ${config.maxBatch}`
-    };
-    sheet.getCell(row, idColumn).dataValidation = {
-      type: "textLength",
-      operator: "equal",
-      formulae: [5],
-      allowBlank: true,
-      showErrorMessage: true,
-      errorTitle: "เลขท้ายบัตรประชาชนไม่ถูกต้อง",
-      error: "ต้องเป็นตัวเลข 5 หลักพอดี หากขึ้นต้นด้วย 0 ให้จัดรูปแบบเซลล์เป็นข้อความ"
-    };
-  }
+  // One validation per column range — NOT per cell.
+  //
+  // Setting it cell by cell made ExcelJS emit overlapping ranges
+  // (D2:D12000 alongside D10:D12000), which is invalid in the file format:
+  // Excel then reports "we found a problem with some content", repairs the
+  // workbook and silently drops cell data.
+  const columnLetter = (header) => sheet.getColumn(TEMPLATE_COLUMNS.findIndex((column) => column.header === header) + 1).letter;
+  const lastRow = Math.max(12000, rows.length + 1);
+
+  sheet.dataValidations.add(`${columnLetter("รุ่น")}2:${columnLetter("รุ่น")}${lastRow}`, {
+    type: "whole",
+    operator: "between",
+    formulae: [1, config.maxBatch],
+    allowBlank: true,
+    showErrorMessage: true,
+    errorTitle: "รุ่นไม่ถูกต้อง",
+    error: `กรุณากรอกรุ่นเป็นตัวเลข 1 ถึง ${config.maxBatch}`
+  });
+
+  const idLetter = columnLetter("เลขท้ายบัตรประชาชน 5 หลัก");
+  sheet.dataValidations.add(`${idLetter}2:${idLetter}${lastRow}`, {
+    type: "textLength",
+    operator: "equal",
+    formulae: [5],
+    allowBlank: true,
+    showErrorMessage: true,
+    errorTitle: "เลขท้ายบัตรประชาชนไม่ถูกต้อง",
+    error: "ต้องเป็นตัวเลข 5 หลักพอดี หากขึ้นต้นด้วย 0 ให้จัดรูปแบบเซลล์เป็นข้อความ"
+  });
   sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: TEMPLATE_COLUMNS.length } };
 
   buildInstructionSheet(workbook);

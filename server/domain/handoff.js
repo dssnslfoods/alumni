@@ -86,11 +86,21 @@ export function handoffSummary(rows) {
 
 const CONTACT_LABELS = { facebook: "Facebook", instagram: "Instagram", line: "LINE", phone: "โทรศัพท์" };
 
-function contactText(record) {
-  return (record.contacts || []).map((contact) => `${CONTACT_LABELS[contact.type] || contact.type}: ${contact.value}`).join(" / ");
+function contactValue(record, type) {
+  return (record.contacts || []).find((contact) => contact.type === type)?.value || "";
 }
 
-/** Columns shared by the workbook and the data-merge CSV, in layout order. */
+function contactText(record) {
+  return (record.contacts || []).map((contact) => `${CONTACT_LABELS[contact.type] || contact.type}: ${contact.value}`).join("  ·  ");
+}
+
+/**
+ * Columns shared by the workbook and the data-merge CSV, in layout order.
+ *
+ * Contacts appear twice on purpose: one column per channel so each can sit
+ * beside its own icon in the layout, plus a combined string for designs that
+ * print all channels on one line.
+ */
 const LAYOUT_COLUMNS = [
   ["ลำดับ", (row) => row.code, 12],
   ["รุ่น", (row) => row.record.batch, 8],
@@ -100,7 +110,12 @@ const LAYOUT_COLUMNS = [
   ["ชื่อ-นามสกุล", (row) => `${row.firstName} ${row.lastName}`, 28],
   ["ชื่อสมัยเรียน", (row) => `${row.record.legalFirstName} ${row.record.legalLastName}`, 28],
   ["ประวัติโดยย่อ", (row) => row.record.bio || "", 52],
-  ["ช่องทางติดต่อ", (row) => contactText(row.record), 40],
+  ["Facebook", (row) => contactValue(row.record, "facebook"), 26],
+  ["Instagram", (row) => contactValue(row.record, "instagram"), 24],
+  ["LINE", (row) => contactValue(row.record, "line"), 22],
+  ["โทรศัพท์", (row) => contactValue(row.record, "phone"), 18],
+  ["ช่องทางติดต่อรวม", (row) => contactText(row.record), 44],
+  ["จำนวนช่องทางติดต่อ", (row) => (row.record.contacts || []).length, 20],
   ["มีรูป", (row) => (row.hasPhoto ? "มี" : "ไม่มี — ใช้ภาพคณะแทน"), 20],
   ["ไฟล์รูป", (row) => row.photoPath, 46]
 ];
@@ -241,6 +256,9 @@ export function buildReadme(rows, { generatedBy, generatedAt, batches } = {}) {
     "หมายเหตุ",
     "-----------------------------------------------------------",
     "* คอลัมน์ ลำดับ (เช่น 45-0012) ตรงกับชื่อไฟล์รูป ใช้ตรวจสอบย้อนกลับได้",
+    "* ช่องทางติดต่อมีให้ทั้งแบบแยกคอลัมน์ (Facebook / Instagram / LINE / โทรศัพท์)",
+    "  สำหรับวางคู่ไอคอนแต่ละช่อง และแบบรวมบรรทัดเดียว (ช่องทางติดต่อรวม)",
+    "  ช่องที่เจ้าตัวไม่ได้ให้ไว้จะเว้นว่าง ให้ซ่อนกรอบนั้นในเลย์เอาต์",
     "* คนที่ไม่มีรูป ช่องไฟล์รูปจะว่าง ให้ใช้ภาพคณะแทนตามที่เจ้าตัวเลือกไว้",
     "  รายชื่อทั้งหมดดูได้ในชีต ต้องใช้ภาพคณะแทน",
     "* รูปถูกปรับขนาดไม่เกิน 1600x1600 พิกเซล และหมุนตาม EXIF มาแล้ว",
