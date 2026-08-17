@@ -19,6 +19,7 @@ import {
   verifyIdCard
 } from "../domain/alumni.js";
 import { deletePhoto, normalizePhoto, storePhoto } from "../domain/photos.js";
+import { findRepresentatives } from "../domain/users.js";
 import { loadUser } from "../middleware/auth.js";
 
 const router = express.Router();
@@ -72,6 +73,40 @@ router.post("/search", route(async (req, res) => {
   if (batch === null) throw badRequest(`กรุณาระบุรุ่นเป็นตัวเลข 1-${effectiveMaxBatch()}`);
   const matches = await searchAlumni(batch, req.body?.query);
   res.json({ matches: matches.map(searchResult) });
+}));
+
+/**
+ * Who to contact for a given batch.
+ *
+ * Exists so that closing submissions is not a dead end: an alumnus who arrives
+ * late types their batch and gets a real person to call. Only the name and the
+ * contact number the representative agreed to publish are returned — never the
+ * account, the email, or anything about other batches.
+ */
+router.get("/representatives", route(async (req, res) => {
+  if (!searchLimiter(clientIp(req))) throw tooMany("ค้นหาถี่เกินไป กรุณารอสักครู่");
+  const batch = parseBatch(req.query.batch);
+  if (batch === null) throw badRequest(`กรุณาระบุรุ่นเป็นตัวเลข 1-${effectiveMaxBatch()}`);
+
+  const staff = await findRepresentatives(batch);
+  const linked = await Promise.all(staff.map((user) => (user.alumniId ? findAlumniById(user.alumniId) : null)));
+
+  const representatives = staff.map((user, index) => {
+    const record = linked[index];
+    return {
+      // Prefer the name from the alumni register — that is the name their
+      // batch actually knows them by.
+      name: record
+        ? `${record.currentFirstName || record.legalFirstName} ${record.currentLastName || record.legalLastName}`.trim()
+        : user.displayName || user.username,
+      formerName: record && record.legalLastName !== record.currentLastName
+        ? `${record.legalFirstName} ${record.legalLastName}`
+        : "",
+      phone: user.phone || ""
+    };
+  });
+
+  res.json({ batch, representatives });
 }));
 
 router.post("/verify", route(async (req, res) => {

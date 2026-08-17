@@ -12,6 +12,7 @@ import {
   can,
   createUser,
   deleteUser,
+  normalizeRepPhone,
   findUserById,
   listUsers,
   normalizeBatchScope,
@@ -91,8 +92,8 @@ router.post("/users", requirePermission("users.manage"), route(async (req, res) 
   const password = String(req.body?.password || "").trim() || generatePassword(14);
   const alumniId = String(req.body?.alumniId || "").trim() || null;
 
-  if (role === "alumni") {
-    if (!alumniId) throw badRequest("บัญชีนิสิตเก่าต้องระบุรหัสระเบียนนิสิตเก่า");
+  if (role === "alumni" && !alumniId) throw badRequest("บัญชีนิสิตเก่าต้องระบุรหัสระเบียนนิสิตเก่า");
+  if (alumniId) {
     const record = await findAlumniById(alumniId);
     if (!record) throw notFound("ไม่พบระเบียนนิสิตเก่าที่ระบุ");
   }
@@ -102,6 +103,7 @@ router.post("/users", requirePermission("users.manage"), route(async (req, res) 
     password,
     displayName: req.body?.displayName,
     email: req.body?.email,
+    phone: req.body?.phone,
     role,
     batchScope: req.body?.batchScope,
     alumniId,
@@ -126,6 +128,12 @@ router.patch("/users/:uid", requirePermission("users.manage"), route(async (req,
   if (req.body?.status !== undefined) {
     if (!["active", "suspended"].includes(req.body.status)) throw badRequest("สถานะบัญชีไม่ถูกต้อง");
     patch.status = req.body.status;
+  }
+  if (req.body?.phone !== undefined) patch.phone = normalizeRepPhone(req.body.phone);
+  if (req.body?.alumniId !== undefined) {
+    const alumniId = String(req.body.alumniId || "").trim();
+    if (alumniId && !(await findAlumniById(alumniId))) throw notFound("ไม่พบระเบียนนิสิตเก่าที่ระบุ");
+    patch.alumniId = alumniId || null;
   }
   if (req.body?.batchScope !== undefined) patch.batchScope = normalizeBatchScope(req.body.batchScope);
   if (req.body?.role !== undefined && req.body.role !== target.role) {

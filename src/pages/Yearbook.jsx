@@ -34,6 +34,8 @@ export function Yearbook() {
   const [settings, setSettings] = useState({ maxBatch: 88, bioMaxLength: 500, submissionOpen: true, closedMessage: "" });
   const [step, setStep] = useState(0);
   const [intent, setIntent] = useState("yes");
+  const [repBatch, setRepBatch] = useState("");
+  const [reps, setReps] = useState(null);
   const [batch, setBatch] = useState("");
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState([]);
@@ -156,6 +158,15 @@ export function Yearbook() {
     probe.src = url;
   }
 
+  const findReps = (event) => {
+    event.preventDefault();
+    setReps(null);
+    return run(async () => {
+      const data = await api(`/api/public/representatives?batch=${encodeURIComponent(repBatch)}`, { auth: false });
+      setReps(data.representatives);
+    });
+  };
+
   const confirmDecline = () => run(async () => {
     await api("/api/public/decline", { method: "POST", auth: false, headers: { "x-submit-token": submitToken } });
     move(7);
@@ -232,11 +243,59 @@ export function Yearbook() {
     );
   }
 
+  if (!settings.submissionOpen) {
+    return (
+      <Shell>
+        <section className="screen compact">
+          <p className="kicker">หนังสืออนุสรณ์ สภจ. 2569</p>
+          <h1>ปิดรับข้อมูลแล้ว</h1>
+          <p className="closed-lead">{settings.closedMessage}</p>
+
+          <h3 className="section-title">ติดต่อตัวแทนรุ่นของท่าน</h3>
+          <p>ระบุรุ่นของท่าน ระบบจะแสดงชื่อและเบอร์ติดต่อของตัวแทนรุ่น</p>
+          <form className="search-form" onSubmit={findReps}>
+            <input
+              inputMode="numeric"
+              maxLength="2"
+              value={repBatch}
+              onChange={(event) => setRepBatch(event.target.value.replace(/\D/g, "").slice(0, 2))}
+              placeholder={`รุ่นของท่าน (1-${settings.maxBatch})`}
+              autoFocus
+            />
+            <button aria-label="ค้นหาตัวแทนรุ่น" disabled={busy || !repBatch}><Search /></button>
+          </form>
+
+          <Alert>{notice}</Alert>
+
+          {reps && (reps.length ? (
+            <div className="rep-list">
+              {reps.map((rep) => (
+                <div key={`${rep.name}-${rep.phone}`} className="rep-card">
+                  <div>
+                    <strong>{rep.name}</strong>
+                    {rep.formerName && <small>ชื่อสมัยเรียน {rep.formerName}</small>}
+                    <span>ตัวแทนรุ่น {repBatch}</span>
+                  </div>
+                  {rep.phone
+                    ? <a className="rep-phone" href={`tel:${rep.phone.replace(/\D/g, "")}`}><Phone /> {rep.phone}</a>
+                    : <span className="rep-nophone">ยังไม่ได้ระบุเบอร์ติดต่อ</span>}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="info">
+              ยังไม่มีตัวแทนรุ่น {repBatch} ในระบบ กรุณาติดต่อสมาคมนิสิตเก่าคณะเภสัชศาสตร์โดยตรง
+            </div>
+          ))}
+        </section>
+      </Shell>
+    );
+  }
+
   return (
     <Shell>
       <Progress current={step} />
       <Alert>{notice}</Alert>
-      {!settings.submissionOpen && <Alert tone="warn">{settings.closedMessage}</Alert>}
 
       {step === 0 && (
         <section className="screen welcome-screen">

@@ -994,7 +994,7 @@ function HandoffPanel({ user }) {
 
 function UserManager({ user }) {
   const { loading, data, error, reload } = useAsync(() => api("/api/admin/users"));
-  const [form, setForm] = useState({ username: "", displayName: "", email: "", role: "staff", batchScope: "", alumniId: "", password: "" });
+  const [form, setForm] = useState({ username: "", displayName: "", email: "", phone: "", role: "staff", batchScope: "", alumniId: "", password: "" });
   const [message, setMessage] = useState("");
   const [credential, setCredential] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -1011,14 +1011,15 @@ function UserManager({ user }) {
         username: form.username,
         displayName: form.displayName,
         email: form.email,
+        phone: form.phone,
         role: form.role,
         batchScope: form.role === "staff" ? form.batchScope.split(/[,\s]+/).filter(Boolean) : null,
-        alumniId: form.role === "alumni" ? form.alumniId : null
+        alumniId: ["staff", "alumni"].includes(form.role) ? form.alumniId : null
       };
       if (form.password) payload.password = form.password;
       const data = await api("/api/admin/users", { method: "POST", body: payload });
       setCredential({ username: data.user.username, password: data.initialPassword });
-      setForm({ username: "", displayName: "", email: "", role: "staff", batchScope: "", alumniId: "", password: "" });
+      setForm({ username: "", displayName: "", email: "", phone: "", role: "staff", batchScope: "", alumniId: "", password: "" });
       reload();
     } catch (createError) {
       setMessage(createError.message);
@@ -1064,8 +1065,28 @@ function UserManager({ user }) {
               {assignableRoles.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}
             </select>
           </label>
-          {form.role === "staff" && <Field label="รุ่นที่ดูแล" value={form.batchScope} setValue={(value) => setForm({ ...form, batchScope: value })} placeholder="เช่น 45, 46" hint="(คั่นด้วยเครื่องหมายจุลภาค)" />}
-          {form.role === "alumni" && <Field label="รหัสระเบียนนิสิตเก่า" value={form.alumniId} setValue={(value) => setForm({ ...form, alumniId: value })} placeholder="เช่น s-2676061" />}
+          {form.role === "staff" && (
+            <>
+              <Field label="รุ่นที่ดูแล" value={form.batchScope} setValue={(value) => setForm({ ...form, batchScope: value })} placeholder="เช่น 45, 46" hint="(คั่นด้วยเครื่องหมายจุลภาค)" />
+              <Field
+                label="เบอร์ติดต่อ"
+                value={form.phone}
+                setValue={(value) => setForm({ ...form, phone: value })}
+                placeholder="081-234-5678"
+                hint="(แสดงให้นิสิตเก่าเห็นเมื่อปิดรับข้อมูล)"
+                inputMode="tel"
+              />
+            </>
+          )}
+          {["staff", "alumni"].includes(form.role) && (
+            <Field
+              label="รหัสระเบียนนิสิตเก่า"
+              value={form.alumniId}
+              setValue={(value) => setForm({ ...form, alumniId: value })}
+              placeholder="เช่น s-2676061"
+              hint={form.role === "staff" ? "(ไม่บังคับ — ผูกเพื่อให้แสดงชื่อจริงในทะเบียน)" : "(บังคับสำหรับบัญชีนิสิตเก่า)"}
+            />
+          )}
           <Field label="รหัสผ่านเริ่มต้น" value={form.password} setValue={(value) => setForm({ ...form, password: value })} placeholder="เว้นว่างเพื่อให้ระบบสุ่มให้" />
         </div>
         <button className="next compact-btn" disabled={busy || !form.username}><UserPlus /> สร้างบัญชี</button>
@@ -1082,14 +1103,15 @@ function UserManager({ user }) {
 
       {loading ? <p className="console-loading">กำลังโหลด…</p> : (
         <table className="data-table">
-          <thead><tr><th>ชื่อผู้ใช้</th><th>ชื่อที่แสดง</th><th>บทบาท</th><th>ขอบเขต</th><th>สถานะ</th><th>เข้าใช้ล่าสุด</th><th>จัดการ</th></tr></thead>
+          <thead><tr><th>ชื่อผู้ใช้</th><th>ชื่อที่แสดง</th><th>บทบาท</th><th>ขอบเขต</th><th>เบอร์ติดต่อ</th><th>สถานะ</th><th>เข้าใช้ล่าสุด</th><th>จัดการ</th></tr></thead>
           <tbody>
             {(data?.users || []).map((item) => (
               <tr key={item.uid}>
                 <td>{item.username}{item.mustChangePassword && <small className="pending-flag"> ยังไม่ตั้งรหัสผ่าน</small>}</td>
                 <td>{item.displayName}</td>
                 <td><span className={`role-chip role-${item.role}`}>{item.roleLabel}</span></td>
-                <td>{item.batchScope?.join(", ") || (item.alumniId ? item.alumniId : "ทั้งระบบ")}</td>
+                <td>{item.batchScope?.join(", ") || "ทั้งระบบ"}{item.alumniId && <><br /><small>{item.alumniId}</small></>}</td>
+                <td>{item.phone || "—"}</td>
                 <td>{item.status === "active" ? "ใช้งาน" : "ระงับ"}</td>
                 <td>{item.lastLoginAt ? formatTime(item.lastLoginAt) : "—"}</td>
                 <td className="row-actions">

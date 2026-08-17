@@ -83,6 +83,7 @@ export function publicUser(user) {
     status: user.status,
     batchScope: user.batchScope || null,
     alumniId: user.alumniId || null,
+    phone: user.phone || "",
     mustChangePassword: Boolean(user.mustChangePassword),
     lastLoginAt: user.lastLoginAt || "",
     createdAt: user.createdAt || ""
@@ -98,7 +99,7 @@ export async function findUserByUsername(username) {
   return reservation?.uid ? getDoc(USERS, reservation.uid) : null;
 }
 
-export async function createUser({ username, password, displayName, email = "", role, batchScope = null, alumniId = null, mustChangePassword = true, createdBy = "system", uid }) {
+export async function createUser({ username, password, displayName, email = "", phone = "", role, batchScope = null, alumniId = null, mustChangePassword = true, createdBy = "system", uid }) {
   const normalized = validateUsername(username);
   validatePassword(password);
   const id = uid || newId("usr");
@@ -109,6 +110,7 @@ export async function createUser({ username, password, displayName, email = "", 
       username: normalized,
       displayName: String(displayName || normalized).trim(),
       email: String(email || "").trim().toLowerCase(),
+      phone: normalizeRepPhone(phone),
       role,
       status: "active",
       batchScope: normalizeBatchScope(batchScope),
@@ -130,6 +132,15 @@ export async function createUser({ username, password, displayName, email = "", 
     await deleteDoc(USERNAMES, normalized).catch(() => {});
     throw error;
   }
+}
+
+/** เบอร์ติดต่อของตัวแทนรุ่น จัดรูปแบบเดียวกับช่องทางติดต่อของนิสิตเก่า */
+export function normalizeRepPhone(value) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.length < 9 || digits.length > 10) throw badRequest("เบอร์ติดต่อต้องเป็นตัวเลข 9-10 หลัก เช่น 081-234-5678");
+  if (digits.length === 10) return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+  return `${digits.slice(0, 2)}-${digits.slice(2, 5)}-${digits.slice(5)}`;
 }
 
 export function normalizeBatchScope(scope) {
@@ -175,6 +186,17 @@ export async function listUsers({ role, status, limit = 200 } = {}) {
   if (status) where.push(["status", "==", status]);
   const found = await listDocs(USERS, { where, limit });
   return found.sort((left, right) => roleLevel(right.role) - roleLevel(left.role) || String(left.username).localeCompare(String(right.username)));
+}
+
+/**
+ * Batch representatives whose scope covers this batch.
+ *
+ * Used by the public page once submissions close, so an alumnus who arrives
+ * late still has a person to contact instead of a dead end.
+ */
+export async function findRepresentatives(batch) {
+  const staff = await listDocs(USERS, { where: [["role", "==", "staff"], ["status", "==", "active"]], limit: 500 });
+  return staff.filter((user) => (user.batchScope || []).includes(Number(batch)));
 }
 
 /* ------------------------------------------------------------------ *

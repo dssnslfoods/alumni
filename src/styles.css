@@ -376,3 +376,20 @@ header strong,header span { display:block; } header strong { font-size:1.03rem; 
 .decline-confirm { min-height:52px; margin-top:26px; padding:0 22px; display:inline-flex; align-items:center; justify-content:center; gap:10px; color:#fff; border:0; background:var(--red); font-weight:700; }
 .decline-confirm:hover:not(:disabled) { background:#8d2f2b; }
 .decline-confirm:disabled { cursor:not-allowed; opacity:.55; }
+
+/* ---------- หน้าปิดรับข้อมูล: ติดต่อตัวแทนรุ่น ---------- */
+.closed-lead { margin-bottom:8px; }
+.rep-list { display:grid; gap:10px; margin-top:18px; }
+.rep-card { display:flex; flex-wrap:wrap; gap:14px; align-items:center; justify-content:space-between; padding:16px 18px; border:1px solid #d9e1d4; border-left:4px solid var(--green); background:#fff; }
+.rep-card > div { display:grid; gap:2px; }
+.rep-card strong { font-family:"Noto Serif Thai"; font-size:1.2rem; color:var(--deep); }
+.rep-card small { color:var(--muted); font-size:.86rem; }
+.rep-card span { color:var(--muted); font-size:.92rem; }
+.rep-phone { display:inline-flex; align-items:center; gap:8px; min-height:46px; padding:0 18px; color:#fff; text-decoration:none; background:var(--deep); font-weight:700; font-variant-numeric:tabular-nums; }
+.rep-phone:hover { background:var(--green); }
+.rep-phone svg { width:17px; height:17px; }
+.rep-nophone { color:var(--muted)!important; font-size:.9rem; }
+@media (max-width:540px) { .rep-card { flex-direction:column; align-items:stretch; } .rep-phone { justify-content:center; } }
+
+/* แถบแจ้งเตือนต้องอยู่ในกรอบเนื้อหา ไม่กินเต็มความกว้างจอ */
+.site > .alert { width:min(780px,calc(100% - 48px)); margin:0 auto 24px; }
