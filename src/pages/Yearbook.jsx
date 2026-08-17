@@ -61,6 +61,7 @@ export function Yearbook() {
   }, []);
 
   const nameChanged = alum && `${firstName} ${lastName}`.trim() !== `${alum.currentFirstName} ${alum.currentLastName}`.trim();
+  const nameChangedFromLegal = alum && `${firstName} ${lastName}`.trim() !== `${alum.legalFirstName} ${alum.legalLastName}`.trim();
   const selectedContactDetails = contactOptions
     .filter(([type]) => selectedContacts.includes(type))
     .map(([type, label]) => ({ type, label, value: contactValues[type] }));
@@ -310,12 +311,11 @@ export function Yearbook() {
               <span>ระบบดึงข้อมูลเดิมขึ้นมาให้แล้ว ท่านแก้ไขเฉพาะส่วนที่ต้องการ แล้วกดส่งอีกครั้งเพื่อบันทึกทับของเดิมได้เลย</span>
             </div>
           )}
-          <p>ตรวจสอบชื่อและนามสกุล หากมีการเปลี่ยนแปลงสามารถแก้ไขได้ทันที</p>
-          <div className="two-fields">
-            <Field label="ชื่อ" value={firstName} setValue={setFirstName} />
-            <Field label="นามสกุล" value={lastName} setValue={setLastName} />
+          <p>ยืนยันตัวตนเรียบร้อยแล้ว กรุณากรอกข้อความที่ต้องการให้ปรากฏในหนังสือ</p>
+          <div className="identity">
+            <span>{alum.legalFirstName} {alum.legalLastName}</span>
+            <small>รุ่น {alum.batch}{alum.studentId ? ` · รหัสนิสิต ${alum.studentId}` : ""}</small>
           </div>
-          {nameChanged && <div className="info">ระบบจะเก็บ “{alum.currentFirstName} {alum.currentLastName}” เป็นประวัติชื่อเดิม และใช้ชื่อใหม่ตามที่ระบุ</div>}
           <label className="bio-field">
             <span>ข้อความหรือประวัติโดยย่อ <small>(ไม่เกิน {settings.bioMaxLength} ตัวอักษร)</small></span>
             <textarea value={bio} maxLength={settings.bioMaxLength} rows="4" onChange={(event) => setBio(event.target.value)} placeholder="เช่น ตำแหน่งงานปัจจุบัน หรือข้อความสั้น ๆ ที่ต้องการให้ปรากฏ" />
@@ -325,14 +325,49 @@ export function Yearbook() {
             <h3>วัตถุประสงค์ของการจัดทำหนังสือ</h3>
             <p>เพื่ออัปเดตชื่อ-นามสกุล รูปถ่ายปัจจุบัน และช่องทางติดต่อของนิสิตเก่า โดยท่านกำหนดได้ว่าจะเปิดเผยข้อมูลใดในหนังสือ</p>
           </div>
-          <button className="next" disabled={!firstName || !lastName} onClick={() => move(4)}>ดำเนินการต่อ <ArrowRight /></button>
+          <button className="next" onClick={() => move(4)}>ดำเนินการต่อ <ArrowRight /></button>
         </section>
       )}
 
       {step === 4 && (
         <section className="screen">
-          <p className="kicker">รูปถ่ายและช่องทางติดต่อ</p>
+          <p className="kicker">ข้อมูลที่จะแสดงในหนังสือ</p>
           <h2>เลือกข้อมูลที่จะแสดง</h2>
+
+          <h3 className="section-title">ชื่อ-นามสกุลที่จะใช้ในหนังสือ</h3>
+          <div className="name-block">
+            <div className="name-original">
+              <span>ชื่อ-นามสกุลสมัยเรียน</span>
+              <strong>{alum?.legalFirstName} {alum?.legalLastName}</strong>
+              <small>ระบบเก็บชื่อนี้ไว้เสมอเพื่อใช้ค้นหาและอ้างอิงกับทะเบียนเดิม จะไม่ถูกลบหรือแทนที่</small>
+            </div>
+            <p className="name-help">หากเปลี่ยนชื่อหรือนามสกุลแล้ว กรอกชื่อปัจจุบันที่ต้องการให้ปรากฏในหนังสือได้เลย</p>
+            <div className="two-fields">
+              <Field label="ชื่อที่ใช้ในหนังสือ" value={firstName} setValue={setFirstName} />
+              <Field label="นามสกุลที่ใช้ในหนังสือ" value={lastName} setValue={setLastName} />
+            </div>
+            {nameChangedFromLegal && (
+              <div className="info">
+                ระบบจะบันทึกเพิ่มว่าท่านเปลี่ยนเป็น “{firstName} {lastName}” โดยยังเก็บ
+                “{alum?.legalFirstName} {alum?.legalLastName}” ไว้เป็นชื่อสมัยเรียนตามเดิม
+              </div>
+            )}
+            {alum?.nameHistory?.length > 0 && (
+              <div className="name-history">
+                <span>ชื่อที่เคยบันทึกไว้ก่อนหน้า</span>
+                <ul>
+                  {alum.nameHistory.map((item) => (
+                    <li key={`${item.fullName}-${item.changedAt}`}>
+                      {item.fullName}
+                      <em>{new Date(item.changedAt).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" })}</em>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          <h3 className="section-title">รูปถ่าย</h3>
           <div className="photo-layout">
             <figure>
               <img src="/assets/yearbook-photo-example.png" alt="ตัวอย่างภาพถ่ายบุคคลที่เหมาะสม" />
@@ -413,7 +448,7 @@ export function Yearbook() {
               inputMode={contact.type === "phone" ? "tel" : "text"}
             />
           ))}
-          <button className="next" onClick={() => move(5)}>ตรวจสอบข้อมูล <ArrowRight /></button>
+          <button className="next" disabled={!firstName.trim() || !lastName.trim()} onClick={() => move(5)}>ตรวจสอบข้อมูล <ArrowRight /></button>
           <button className="back" onClick={() => move(3)}><ChevronLeft /> ย้อนกลับ</button>
         </section>
       )}
@@ -424,6 +459,7 @@ export function Yearbook() {
           <h2>ตรวจสอบข้อมูลของท่าน</h2>
           <div className="review">
             <Review label="ชื่อในหนังสือ" value={`${firstName} ${lastName}`} />
+            {nameChangedFromLegal && <Review label="ชื่อสมัยเรียน (เก็บไว้)" value={`${alum?.legalFirstName} ${alum?.legalLastName}`} />}
             <Review label="รูปภาพ" value={photoChoice === "placeholder" ? "ไม่แสดงรูป ใช้ภาพคณะแทน" : photo?.name || (alum?.photo?.downloadUrl ? "ใช้รูปเดิมที่เคยส่งไว้" : "ยังไม่ได้เลือกรูป")} />
             {editing && alum?.photo?.downloadUrl && !photo && photoChoice === "upload" && (
               <div className="existing-photo">

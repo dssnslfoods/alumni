@@ -341,3 +341,17 @@ header strong,header span { display:block; } header strong { font-size:1.03rem; 
 /* ---------- คำแนะนำรูปแบบใต้ป้ายกำกับช่องกรอก ---------- */
 .field span small,
 .large-field span small { display:block; margin-top:3px; color:var(--muted); font-weight:400; font-size:.85rem; line-height:1.55; }
+
+/* ---------- บล็อกชื่อ-นามสกุลที่ใช้ในหนังสือ ---------- */
+.section-title { margin:26px 0 12px!important; padding-top:22px; border-top:1px solid var(--line); }
+.section-title:first-of-type { margin-top:20px!important; padding-top:0; border-top:0; }
+.name-block { margin-bottom:6px; }
+.name-original { display:grid; gap:4px; padding:14px 16px; border-left:4px solid var(--gold); background:#faf6ea; }
+.name-original span { color:var(--muted); font-size:.9rem; }
+.name-original strong { font-family:"Noto Serif Thai"; font-size:1.25rem; color:var(--deep); }
+.name-original small { color:#8a7a55; font-size:.86rem; line-height:1.65; }
+.name-help { margin:16px 0 0!important; font-size:1rem!important; }
+.name-history { margin-top:16px; padding:13px 15px; border:1px solid #dde4d7; background:#fbfcf8; }
+.name-history > span { display:block; margin-bottom:7px; color:var(--muted); font-size:.9rem; }
+.name-history ul { margin:0; padding-left:18px; color:var(--deep); line-height:1.9; }
+.name-history em { margin-left:8px; color:var(--muted); font-size:.84rem; font-style:normal; }
