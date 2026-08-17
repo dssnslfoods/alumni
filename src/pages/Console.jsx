@@ -1126,7 +1126,7 @@ function UserManager({ user }) {
               label="รหัสระเบียนนิสิตเก่า"
               value={form.alumniId}
               setValue={(value) => setForm({ ...form, alumniId: value })}
-              placeholder="เช่น s-2676061"
+              placeholder="เช่น s-2834000001"
               hint={form.role === "staff" ? "(ไม่บังคับ — ผูกเพื่อให้แสดงชื่อจริงในทะเบียน)" : "(บังคับสำหรับบัญชีนิสิตเก่า)"}
             />
           )}
@@ -1168,7 +1168,7 @@ function UserManager({ user }) {
                 label="รหัสระเบียนนิสิตเก่า"
                 value={editing.alumniId}
                 setValue={(value) => setEditing({ ...editing, alumniId: value })}
-                placeholder="เช่น s-2676061"
+                placeholder="เช่น s-2834000001"
                 hint="(เว้นว่างเพื่อยกเลิกการผูก)"
               />
             )}
