@@ -101,6 +101,12 @@ settings/system      การตั้งค่าระบบ (เปิด/�
 | `reviewedBy` / `reviewNote` | string | สำหรับผู้ดูแลบันทึกการตรวจสอบ |
 | `source` | object | `{ importJobId, rowNumber, filename }` ใช้ตามรอยกลับไปยังไฟล์ต้นทาง |
 | `outreach` | object | `{ email, phone, note }` ช่องทางที่ผู้ดูแลใช้ติดตามงาน — **คนละส่วนกับ `contacts`** |
+| `followUp` | object | `{ state, note, updatedAt, updatedBy }` สถานะการติดตามที่ตัวแทนรุ่นบันทึก |
+
+`followUp.state` มีค่า `none` \| `contacted` \| `unreachable` \| `abroad` \| `declinedByPhone` \| `deceased`
+
+แยกจาก `status` โดยตั้งใจ — `status` คือสิ่งที่เจ้าตัวตัดสินใจในระบบ ส่วน `followUp` คือสิ่งที่
+ตัวแทนรุ่นรู้จากการโทรตาม การมาร์คว่าเสียชีวิตจึงไม่ไปลบร่องรอยว่าคนนั้นเคยยินยอมลงหนังสือไว้
 
 ---
 

@@ -9,6 +9,35 @@ const { alumni: ALUMNI, submissions: SUBMISSIONS } = config.collections;
 export const CONTACT_TYPES = ["facebook", "instagram", "line", "phone"];
 export const STATUSES = ["pending", "submitted", "declined"];
 
+/**
+ * Follow-up state, tracked by the batch representative.
+ *
+ * Deliberately separate from `status`: `status` records what the alumnus
+ * decided inside the system, while this records what the representative
+ * learned by phoning around. Folding "deceased" into `status` would erase the
+ * fact that the person had already consented to appear in the book.
+ */
+export const FOLLOW_UP_STATES = {
+  none: { label: "ยังไม่ได้ติดตาม", tone: "neutral" },
+  contacted: { label: "ติดต่อแล้ว รอส่งข้อมูล", tone: "wait" },
+  unreachable: { label: "ติดต่อไม่ได้", tone: "warn" },
+  abroad: { label: "อยู่ต่างประเทศ", tone: "wait" },
+  declinedByPhone: { label: "แจ้งไม่ประสงค์ลง (ทางโทรศัพท์)", tone: "warn" },
+  deceased: { label: "เสียชีวิต", tone: "memorial" }
+};
+
+export const FOLLOW_UP_KEYS = Object.keys(FOLLOW_UP_STATES);
+
+export function validateFollowUp(state, note, actor) {
+  if (!FOLLOW_UP_KEYS.includes(state)) throw badRequest("สถานะการติดตามไม่ถูกต้อง");
+  return {
+    state,
+    note: normalizeText(note).slice(0, 300),
+    updatedAt: new Date().toISOString(),
+    updatedBy: actor?.username || "system"
+  };
+}
+
 export function normalizeText(value) {
   return String(value ?? "").trim().replace(/\s+/g, " ");
 }
@@ -90,7 +119,8 @@ export function defaultSubmissionFields({ firstName, lastName }) {
     pdpa: { consent: false, consentAt: "", version: "" },
     submittedAt: "",
     reviewedBy: "",
-    reviewNote: ""
+    reviewNote: "",
+    followUp: { state: "none", note: "", updatedAt: "", updatedBy: "" }
   };
 }
 
@@ -314,6 +344,16 @@ export async function syncSubmission(record) {
  * the records. `byBatch` carries the roster size alongside the response count
  * so the dashboard can show a real response *rate* per batch, not just a total.
  */
+/** นับตามสถานะการติดตาม สำหรับแดชบอร์ดและหน้ารายชื่อ */
+export function summariseFollowUp(records) {
+  const counts = Object.fromEntries(FOLLOW_UP_KEYS.map((key) => [key, 0]));
+  records.forEach((record) => {
+    const state = record.followUp?.state;
+    counts[FOLLOW_UP_KEYS.includes(state) ? state : "none"] += 1;
+  });
+  return counts;
+}
+
 export async function alumniSummary() {
   const [total, submitted, pending, declined] = await Promise.all([
     countDocs(ALUMNI),
@@ -323,6 +363,7 @@ export async function alumniSummary() {
   ]);
 
   const all = await listDocs(ALUMNI, { limit: 60000 });
+  const followUp = summariseFollowUp(all);
   const byBatch = new Map();
   let withPhoto = 0;
   let withoutPhoto = 0;
@@ -333,9 +374,10 @@ export async function alumniSummary() {
   const recent = [];
 
   all.forEach((record) => {
-    const stats = byBatch.get(record.batch) || { batch: record.batch, roster: 0, submitted: 0, pending: 0, declined: 0, photos: 0 };
+    const stats = byBatch.get(record.batch) || { batch: record.batch, roster: 0, submitted: 0, pending: 0, declined: 0, photos: 0, deceased: 0 };
     stats.roster += 1;
     stats[record.status] = (stats[record.status] || 0) + 1;
+    if (record.followUp?.state === "deceased") stats.deceased += 1;
 
     if (record.status === "submitted") {
       if (record.photo?.choice === "upload") {
@@ -384,6 +426,9 @@ export async function alumniSummary() {
     withBio,
     nameChanged,
     photoBytes,
+    followUp,
+    deceased: followUp.deceased,
+    unreachable: followUp.unreachable,
     responseRate: total ? Math.round((answered / total) * 100) : 0,
     submittedRate: total ? Math.round((submitted / total) * 100) : 0,
     photoRate: submitted ? Math.round((withPhoto / submitted) * 100) : 0,

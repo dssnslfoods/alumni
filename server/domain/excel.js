@@ -5,6 +5,7 @@ import { bulkSet, getDocsByIds, setDoc } from "../lib/db.js";
 import { newId } from "../lib/crypto.js";
 import { badRequest } from "../lib/http.js";
 import {
+  FOLLOW_UP_STATES,
   alumniId,
   defaultSubmissionFields,
   normalizeText,
@@ -328,6 +329,9 @@ const EXPORT_COLUMNS = [
   ["LINE", (record) => (record.contacts || []).find((contact) => contact.type === "line")?.value || ""],
   ["โทรศัพท์", (record) => (record.contacts || []).find((contact) => contact.type === "phone")?.value || ""],
   ["ประวัติโดยย่อ", (record) => record.bio || ""],
+  ["สถานะติดตาม", (record) => FOLLOW_UP_STATES[record.followUp?.state || "none"]?.label || ""],
+  ["บันทึกการติดตาม", (record) => record.followUp?.note || ""],
+  ["ผู้บันทึกติดตาม", (record) => record.followUp?.updatedBy || ""],
   ["PDPA", (record) => (record.pdpa?.consent ? "ยินยอม" : "ยังไม่ยินยอม")],
   ["เวลาที่ยินยอม", (record) => record.pdpa?.consentAt || ""],
   ["เวอร์ชันคำยินยอม", (record) => record.pdpa?.version || ""],

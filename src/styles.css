@@ -355,3 +355,16 @@ header strong,header span { display:block; } header strong { font-size:1.03rem; 
 .name-history > span { display:block; margin-bottom:7px; color:var(--muted); font-size:.9rem; }
 .name-history ul { margin:0; padding-left:18px; color:var(--deep); line-height:1.9; }
 .name-history em { margin-left:8px; color:var(--muted); font-size:.84rem; font-style:normal; }
+
+/* ---------- คอลัมน์ติดตามในตารางรายชื่อ ---------- */
+.contact-cell { white-space:normal!important; min-width:150px; }
+.contact-cell a { color:var(--green); font-weight:700; }
+.contact-cell small { color:var(--muted); font-size:.82rem; }
+.muted-cell { color:#a8b3a4; }
+.follow-select { min-width:160px; }
+.follow-meta { display:block; margin-top:4px; max-width:190px; white-space:normal; color:var(--muted); font-size:.78rem; line-height:1.5; }
+.follow-deceased { color:#5a4a6b; border-color:#c9bcd6!important; background:#f4f0f8!important; font-weight:700; }
+.follow-unreachable, .follow-declinedByPhone { color:#7a6413; border-color:#e0cf9a!important; background:#fbf3dd!important; }
+.follow-contacted, .follow-abroad { color:#1c5d2b; border-color:#bcd7b8!important; background:#eef6ec!important; }
+.row-memorial td { background:#faf8fc; }
+.row-memorial td:first-child { box-shadow:inset 3px 0 0 #9b86b3; }

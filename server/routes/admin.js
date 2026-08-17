@@ -22,6 +22,7 @@ import {
   validateUsername
 } from "../domain/users.js";
 import {
+  FOLLOW_UP_STATES,
   STATUSES,
   alumniSummary,
   alumniView,
@@ -34,7 +35,8 @@ import {
   parseBatchList,
   saveAlumni,
   syncSubmission,
-  validateContacts
+  validateContacts,
+  validateFollowUp
 } from "../domain/alumni.js";
 import {
   buildExportWorkbook,
@@ -226,6 +228,29 @@ router.patch("/alumni/:id", requirePermission("alumni.write"), route(async (req,
   await syncSubmission({ ...record, ...updated });
   await audit(req, "alumni.update", { targetType: "alumni", targetId: record.id, meta: { fields: Object.keys(patch) } });
   res.json({ record: alumniView(updated) });
+}));
+
+/**
+ * Follow-up state — the batch representative's own record of the chase.
+ *
+ * Separate from `PATCH /alumni/:id` on purpose: a representative may record
+ * that someone has passed away or cannot be reached, but must not be able to
+ * mark a submission as confirmed on that person's behalf.
+ */
+router.patch("/alumni/:id/follow-up", requirePermission("alumni.followUp"), route(async (req, res) => {
+  const record = await findAlumniById(req.params.id);
+  if (!record) throw notFound("ไม่พบระเบียนนิสิตเก่า");
+  assertBatchAccess(req.user, record.batch);
+
+  const followUp = validateFollowUp(String(req.body?.state || ""), req.body?.note, req.user);
+  const updated = await saveAlumni(record.id, { followUp });
+  await syncSubmission({ ...record, ...updated });
+  await audit(req, "alumni.followUp", { targetType: "alumni", targetId: record.id, meta: { state: followUp.state } });
+  res.json({ record: alumniView(updated) });
+}));
+
+router.get("/follow-up/states", requirePermission("alumni.followUp"), route(async (_req, res) => {
+  res.json({ states: Object.entries(FOLLOW_UP_STATES).map(([key, meta]) => ({ key, ...meta })) });
 }));
 
 /* -------------------------------- import --------------------------------- */

@@ -22,6 +22,9 @@ const PERMISSIONS = {
   "alumni.import": ["owner", "admin"],
   "alumni.export": ["owner", "admin"],
   "submissions.review": ["owner", "admin", "staff"],
+  // Batch representatives track who they have reached by phone. This is their
+  // own record of the chase, kept apart from the alumnus's consent decision.
+  "alumni.followUp": ["owner", "admin", "staff"],
   "settings.manage": ["owner", "admin"],
   "audit.read": ["owner", "admin"],
   // Wiping every alumni record is irreversible — still gated behind a typed

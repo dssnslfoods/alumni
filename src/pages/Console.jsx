@@ -23,6 +23,16 @@ import { api, download, session } from "../lib/api.js";
 const ROLE_LABELS = { owner: "เจ้าของระบบ", admin: "ผู้ดูแลระบบ", staff: "ตัวแทนรุ่น", alumni: "นิสิตเก่า" };
 const STATUS_LABELS = { pending: "ยังไม่ตอบ", submitted: "ยืนยันแล้ว", declined: "ไม่ประสงค์ลง" };
 
+/** ต้องตรงกับ FOLLOW_UP_STATES ที่ server/domain/alumni.js */
+const FOLLOW_UP_LABELS = {
+  none: "ยังไม่ได้ติดตาม",
+  contacted: "ติดต่อแล้ว รอส่งข้อมูล",
+  unreachable: "ติดต่อไม่ได้",
+  abroad: "อยู่ต่างประเทศ",
+  declinedByPhone: "แจ้งไม่ประสงค์ลง (ทางโทรศัพท์)",
+  deceased: "เสียชีวิต"
+};
+
 export function Console({ user, onSignOut, onChangePassword }) {
   const canManageUsers = ["owner", "admin"].includes(user.role);
   const canImport = ["owner", "admin"].includes(user.role);
@@ -365,6 +375,24 @@ function AlumniTable({ user }) {
   const to = offset + shown;
   const thai = (value) => Number(value || 0).toLocaleString("th-TH");
 
+  const canEdit = ["owner", "admin"].includes(user.role);
+
+  async function updateFollowUp(record, state) {
+    setMessage("");
+    const note = state === "none" ? "" : window.prompt(
+      `บันทึกเพิ่มเติมสำหรับ ${record.legalFirstName} ${record.legalLastName} (ไม่บังคับ)\nเช่น วันที่โทร ผู้ให้ข้อมูล`,
+      record.followUp?.note || ""
+    );
+    if (note === null) return;
+    try {
+      await api(`/api/admin/alumni/${record.id}/follow-up`, { method: "PATCH", body: { state, note } });
+      setMessage(`บันทึกสถานะติดตามของ ${record.legalFirstName} ${record.legalLastName} แล้ว`);
+      reload();
+    } catch (updateError) {
+      setMessage(updateError.message);
+    }
+  }
+
   async function updateStatus(record, nextStatus) {
     setMessage("");
     try {
@@ -444,25 +472,50 @@ function AlumniTable({ user }) {
 
           <table className="data-table">
             <thead>
-              <tr><th>รุ่น</th><th>ชื่อสมัยเรียน</th><th>ชื่อในหนังสือ</th><th>สถานะ</th><th>รูป</th><th>ติดต่อ</th><th>จัดการ</th></tr>
+              <tr>
+              <th>รุ่น</th><th>ชื่อสมัยเรียน</th><th>ชื่อในหนังสือ</th><th>สถานะส่งข้อมูล</th>
+              <th>เบอร์ติดต่อ</th><th>รูป</th><th>ช่องทางที่ลงหนังสือ</th><th>สถานะติดตาม</th>
+            </tr>
             </thead>
             <tbody>
               {(data?.records || []).map((record) => (
-                <tr key={record.id}>
+                <tr key={record.id} className={record.followUp?.state === "deceased" ? "row-memorial" : ""}>
                   <td>{record.batch}</td>
                   <td>{record.legalFirstName} {record.legalLastName}<br /><small>{record.studentId}</small></td>
                   <td>{record.currentFirstName} {record.currentLastName}</td>
-                  <td><span className={`status-chip status-${record.status}`}>{STATUS_LABELS[record.status]}</span></td>
+                  <td>
+                    {canEdit ? (
+                      <select value={record.status} onChange={(event) => updateStatus(record, event.target.value)}>
+                        {Object.entries(STATUS_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                      </select>
+                    ) : (
+                      <span className={`status-chip status-${record.status}`}>{STATUS_LABELS[record.status]}</span>
+                    )}
+                  </td>
+                  <td className="contact-cell">
+                    {record.outreach?.phone
+                      ? <a href={`tel:${record.outreach.phone}`}>{formatPhone(record.outreach.phone)}</a>
+                      : <span className="muted-cell">ไม่มีเบอร์</span>}
+                    {record.outreach?.email && <><br /><a href={`mailto:${record.outreach.email}`}>{record.outreach.email}</a></>}
+                    {record.outreach?.note && <><br /><small>{record.outreach.note}</small></>}
+                  </td>
                   <td>{record.photo?.downloadUrl ? <a href={record.photo.downloadUrl} target="_blank" rel="noreferrer">ดูรูป</a> : record.photo?.choice === "placeholder" ? "ใช้ภาพคณะ" : "—"}</td>
                   <td>{(record.contacts || []).map((contact) => contact.type).join(", ") || "—"}</td>
                   <td>
-                    <select value={record.status} onChange={(event) => updateStatus(record, event.target.value)}>
-                      {Object.entries(STATUS_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                    <select
+                      className={`follow-select follow-${record.followUp?.state || "none"}`}
+                      value={record.followUp?.state || "none"}
+                      onChange={(event) => updateFollowUp(record, event.target.value)}
+                    >
+                      {Object.entries(FOLLOW_UP_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
                     </select>
+                    {record.followUp?.updatedBy && (
+                      <small className="follow-meta">โดย {record.followUp.updatedBy}{record.followUp.note ? ` · ${record.followUp.note}` : ""}</small>
+                    )}
                   </td>
                 </tr>
               ))}
-              {!data?.records?.length && <tr><td colSpan="7" className="empty">ไม่พบข้อมูลตามเงื่อนไข</td></tr>}
+              {!data?.records?.length && <tr><td colSpan="8" className="empty">ไม่พบข้อมูลตามเงื่อนไข</td></tr>}
             </tbody>
           </table>
         </>
@@ -1133,6 +1186,13 @@ function AuditLog() {
       )}
     </div>
   );
+}
+
+function formatPhone(digits) {
+  const value = String(digits || "").replace(/\D/g, "");
+  if (value.length === 10) return `${value.slice(0, 3)}-${value.slice(3, 6)}-${value.slice(6)}`;
+  if (value.length === 9) return `${value.slice(0, 2)}-${value.slice(2, 5)}-${value.slice(5)}`;
+  return value || "—";
 }
 
 function formatTime(value) {
