@@ -19,6 +19,10 @@
       {
         "source": "/api/**",
         "headers": [{ "key": "Cache-Control", "value": "no-store" }]
+      },
+      {
+        "source": "/api/public/stats",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=30" }]
       }
     ]
   },
