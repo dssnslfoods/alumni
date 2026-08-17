@@ -118,6 +118,8 @@ export function mapRow(row) {
 
   const warnings = [];
   if (!studentId) warnings.push("ไม่มีรหัสนิสิต — ระบบจะสร้างรหัสระเบียนจากชื่อและรุ่นแทน");
+  else if (studentId.length !== 10) warnings.push(`รหัสนิสิตควรเป็น 10 หลัก (XX34XXXXXX) แต่ได้ ${studentId.length} หลัก — ระบบยังรับเข้าได้`);
+  else if (studentId.slice(2, 4) !== "34") warnings.push(`รหัสนิสิตหลักที่ 3-4 ควรเป็น 34 (คณะเภสัชศาสตร์) แต่ได้ ${studentId.slice(2, 4)} — ระบบยังรับเข้าได้`);
   if (outreachEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(outreachEmail)) warnings.push("รูปแบบอีเมลไม่ถูกต้อง จึงไม่บันทึกอีเมล");
 
   return {
@@ -377,7 +379,7 @@ const TEMPLATE_COLUMNS = [
   { header: "ชื่อ", width: 20, required: true, text: false, purpose: "ชื่อจริง “สมัยเรียน” ใช้ให้นิสิตเก่าค้นหาตัวเอง", example: "สมชาย" },
   { header: "นามสกุล", width: 22, required: true, text: false, purpose: "นามสกุล “สมัยเรียน” ใช้ให้นิสิตเก่าค้นหาตัวเอง", example: "ใจดี" },
   { header: "รุ่น", width: 8, required: true, text: false, purpose: `ตัวเลข 1-${effectiveMaxBatch()} ใช้กรองก่อนค้นหาชื่อเสมอ`, example: 45 },
-  { header: "รหัสนิสิต", width: 14, required: false, text: true, purpose: "แนะนำอย่างยิ่ง — ทำให้นำเข้าไฟล์ซ้ำเป็นการอัปเดต ไม่สร้างข้อมูลซ้ำ", example: "2676061" },
+  { header: "รหัสนิสิต", width: 16, required: false, text: true, purpose: "10 หลัก รูปแบบ XX34XXXXXX (ปีเข้าศึกษา+รหัสคณะ 34+ลำดับ) แนะนำอย่างยิ่ง — ทำให้นำเข้าไฟล์ซ้ำเป็นการอัปเดต ไม่สร้างข้อมูลซ้ำ", example: "2834000001" },
   { header: "เลขท้ายบัตรประชาชน 5 หลัก", width: 26, required: true, text: true, purpose: "ใช้ยืนยันตัวตน เก็บแบบเข้ารหัสทางเดียว ไม่ปรากฏในหนังสือหรือไฟล์ส่งออก", example: "12345" },
   { header: "ชื่อปัจจุบัน", width: 20, required: false, text: false, purpose: "ถ้าสมาคมทราบว่าเปลี่ยนชื่อแล้ว ระบบจะเติมให้ล่วงหน้า (เจ้าตัวแก้ได้)", example: "สมชาย" },
   { header: "นามสกุลปัจจุบัน", width: 22, required: false, text: false, purpose: "เช่นเดียวกับชื่อปัจจุบัน — จะไม่ทับข้อมูลที่เจ้าตัวกรอกเองแล้ว", example: "ใจงาม" },
@@ -452,6 +454,16 @@ export async function buildImportTemplate({ rows = [] } = {}) {
     errorTitle: "เลขท้ายบัตรประชาชนไม่ถูกต้อง",
     error: "ต้องเป็นตัวเลข 5 หลักพอดี หากขึ้นต้นด้วย 0 ให้จัดรูปแบบเซลล์เป็นข้อความ"
   });
+  const sidLetter = columnLetter("รหัสนิสิต");
+  sheet.dataValidations.add(`${sidLetter}2:${sidLetter}${lastRow}`, {
+    type: "textLength",
+    operator: "equal",
+    formulae: [10],
+    allowBlank: true,
+    showErrorMessage: true,
+    errorTitle: "รหัสนิสิตไม่ถูกต้อง",
+    error: "รหัสนิสิตต้องเป็นตัวเลข 10 หลัก รูปแบบ XX34XXXXXX (เช่น 2834000001) หากขึ้นต้นด้วย 0 ให้จัดรูปแบบเซลล์เป็นข้อความ"
+  });
   sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: TEMPLATE_COLUMNS.length } };
 
   buildInstructionSheet(workbook);
@@ -471,7 +483,7 @@ function buildInstructionSheet(workbook) {
     "1. กรอกข้อมูลในชีต “รายชื่อนิสิตเก่า” เท่านั้น หนึ่งคนต่อหนึ่งแถว ห้ามลบหรือแก้ไขแถวหัวตาราง",
     "2. คอลัมน์พื้นหลังสีเข้มคือคอลัมน์ที่จำเป็น หากขาดข้อมูลระบบจะข้ามแถวนั้นและรายงานให้ทราบ",
     "3. ลำดับคอลัมน์สลับกันได้ ระบบอ่านจากชื่อหัวคอลัมน์ และจะไม่สนใจคอลัมน์อื่นที่เพิ่มเข้ามา",
-    "4. “รหัสนิสิต” ไม่บังคับ แต่แนะนำอย่างยิ่ง เพราะเป็นตัวระบุตัวตนถาวรของแต่ละระเบียน",
+    `4. “รหัสนิสิต” 10 หลัก รูปแบบ XX34XXXXXX (ปีเข้าศึกษา 2 หลัก + รหัสคณะ 34 + ลำดับ 6 หลัก) ไม่บังคับ แต่แนะนำอย่างยิ่ง`,
     "5. อัปโหลดที่หน้า /admin แท็บ “นำเข้า / ส่งออก” แล้วกด “ตรวจสอบไฟล์ก่อน” เพื่อดูผลโดยยังไม่บันทึก",
     "6. นำเข้าไฟล์เดิมซ้ำได้เสมอ ระบบจะอัปเดตข้อมูลอ้างอิงให้ โดยไม่ทับข้อมูลที่นิสิตเก่ากรอกไว้แล้ว"
   ].forEach((line) => {

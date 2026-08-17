@@ -60,6 +60,34 @@ const EMAIL_DOMAINS = ["gmail.com", "hotmail.com", "outlook.com", "yahoo.com", "
 const EMAIL_STEMS = ["somchai", "suda", "kitti", "wanna", "anusorn", "piya", "natt", "chai", "siri", "porn", "thana", "arun"];
 
 /**
+ * Map a batch number to the 2-digit entry-year suffix.
+ *
+ * Chulalongkorn student IDs encode the last two digits of the Buddhist-era
+ * year the student entered the university. The Faculty of Pharmaceutical
+ * Sciences opened its first cohort (รุ่น 1) in B.E. 2484 (1941 CE).
+ *
+ * batch 1  → B.E. 2484 → "84"
+ * batch 45 → B.E. 2528 → "28"
+ * batch 82 → B.E. 2565 → "65"
+ */
+function entryYearSuffix(batch) {
+  const entryYear = 2483 + batch;
+  return String(entryYear % 100).padStart(2, "0");
+}
+
+/**
+ * Build a 10-digit student ID in the Chulalongkorn format.
+ *
+ *   YY 34 SSSSSS
+ *   │  │  └─ 6-digit sequential number within the faculty
+ *   │  └──── faculty code (34 = Pharmaceutical Sciences)
+ *   └─────── last 2 digits of the B.E. entry year
+ */
+export function formatStudentId(batch, sequence) {
+  return `${entryYearSuffix(batch)}34${String(sequence).padStart(6, "0")}`;
+}
+
+/**
  * Older batches are smaller (fewer members still on the register), newer
  * batches larger — so per-batch counts resemble a real association roster
  * rather than a flat distribution.
@@ -73,7 +101,7 @@ function batchSizes(total, maxBatch) {
   return sizes;
 }
 
-export function generateSampleRows(total = 8000, { seed = 25690816, maxBatch = config.maxBatch } = {}) {
+export function generateSampleRows(total = 10000, { seed = 25690816, maxBatch = config.maxBatch } = {}) {
   const random = createRandom(seed);
   const pick = (list) => list[Math.floor(random() * list.length)];
   const chance = (probability) => random() < probability;
@@ -85,7 +113,6 @@ export function generateSampleRows(total = 8000, { seed = 25690816, maxBatch = c
     for (let sequence = 1; sequence <= size; sequence += 1) {
       const isFemale = chance(0.62);
       const firstName = isFemale ? pick(FEMALE_NAMES) : pick(MALE_NAMES);
-      // Surname changes are common for married alumnae; first-name changes are rarer.
       const changedSurname = isFemale && chance(0.22);
       const changedFirstName = chance(0.04);
 
@@ -94,7 +121,7 @@ export function generateSampleRows(total = 8000, { seed = 25690816, maxBatch = c
         "ชื่อ": firstName,
         "นามสกุล": pick(SURNAMES),
         "รุ่น": batch,
-        "รหัสนิสิต": `${String(batch).padStart(2, "0")}${String(sequence).padStart(5, "0")}`,
+        "รหัสนิสิต": formatStudentId(batch, sequence),
         "เลขท้ายบัตรประชาชน 5 หลัก": digits(5),
         "ชื่อปัจจุบัน": changedFirstName ? (isFemale ? pick(FEMALE_NAMES) : pick(MALE_NAMES)) : "",
         "นามสกุลปัจจุบัน": changedSurname ? pick(SURNAMES) : "",

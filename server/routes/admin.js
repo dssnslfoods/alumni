@@ -286,7 +286,7 @@ router.get("/follow-up/states", requirePermission("alumni.followUp"), route(asyn
  */
 router.get("/import/template.xlsx", requirePermission("alumni.import"), route(async (req, res) => {
   const requested = Number(req.query.rows) || 0;
-  const rows = requested > 0 ? generateSampleRows(Math.min(requested, 20000)) : [];
+  const rows = requested > 0 ? generateSampleRows(Math.min(requested, 20000), { maxBatch: effectiveMaxBatch() }) : [];
   const filename = rows.length ? `alumni-sample-${rows.length}.xlsx` : "alumni-import-template.xlsx";
   res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
   res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").send(Buffer.from(await buildImportTemplate({ rows })));

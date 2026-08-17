@@ -659,8 +659,8 @@ function ImportExport({ canReset }) {
         <button className="ghost" onClick={() => download("/api/admin/import/template.xlsx", "แบบฟอร์มรายชื่อนิสิตเก่า.xlsx")}>
           <Download /> ไฟล์ต้นแบบเปล่า (ใช้กรอกข้อมูลจริง)
         </button>
-        <button className="ghost" onClick={() => download("/api/admin/import/template.xlsx?rows=8000", "ตัวอย่างข้อมูลนิสิตเก่า-8000-รายการ.xlsx")}>
-          <Download /> ไฟล์ตัวอย่างพร้อมข้อมูล 8,000 รายการ
+        <button className="ghost" onClick={() => download("/api/admin/import/template.xlsx?rows=10000", "ตัวอย่างข้อมูลนิสิตเก่า-10000-รายการ.xlsx")}>
+          <Download /> ไฟล์ตัวอย่างพร้อมข้อมูล 10,000 รายการ
         </button>
       </div>
       <p className="panel-note">

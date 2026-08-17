@@ -170,7 +170,7 @@ export function searchResult(record) {
     firstName: record.legalFirstName,
     lastName: record.legalLastName,
     batch: record.batch,
-    studentId: record.studentId ? `${record.studentId.slice(0, 2)}xxxx${record.studentId.slice(-1)}` : "",
+    studentId: record.studentId ? `${record.studentId.slice(0, 4)}xxxx${record.studentId.slice(-2)}` : "",
     alreadySubmitted: record.status === "submitted"
   };
 }

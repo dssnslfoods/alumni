@@ -1,7 +1,7 @@
 /**
  * Write a sample alumni spreadsheet to `outputs/`.
  *
- *   node scripts/generate-sample-data.mjs            # 8,000 rows
+ *   node scripts/generate-sample-data.mjs            # 10,000 rows (batches 1-82)
  *   node scripts/generate-sample-data.mjs 500        # any size
  *
  * The same data is available from the admin console
@@ -14,7 +14,7 @@ import { buildImportTemplate } from "../server/domain/excel.js";
 import { generateSampleRows, summariseSampleRows } from "../server/domain/sample-data.js";
 import { rootDir } from "../server/lib/env.js";
 
-const total = Number(process.argv[2]) || 8000;
+const total = Number(process.argv[2]) || 10000;
 const rows = generateSampleRows(total);
 const stats = summariseSampleRows(rows);
 
