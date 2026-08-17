@@ -56,7 +56,7 @@ import {
   handoffSummary,
   streamPhotoArchive
 } from "../domain/handoff.js";
-import { getSettings, updateSettings } from "../domain/settings.js";
+import { effectiveMaxBatch, getSettings, updateSettings } from "../domain/settings.js";
 
 const router = express.Router();
 
@@ -166,7 +166,7 @@ function requestedBatches(req) {
   const raw = req.query.batch ?? req.query.batches ?? "";
   if (!String(raw).trim()) return [];
   const batches = parseBatchList(raw);
-  if (batches === null || !batches.length) throw badRequest(`ระบุรุ่นไม่ถูกต้อง — ใส่เป็นตัวเลข 1-${config.maxBatch} คั่นด้วยเครื่องหมายจุลภาค เช่น 45, 46`);
+  if (batches === null || !batches.length) throw badRequest(`ระบุรุ่นไม่ถูกต้อง — ใส่เป็นตัวเลข 1-${effectiveMaxBatch()} คั่นด้วยเครื่องหมายจุลภาค เช่น 45, 46`);
   if (batches.length > 88) throw badRequest("ระบุรุ่นได้สูงสุด 88 รุ่น");
   batches.forEach((batch) => assertBatchAccess(req.user, batch));
   return batches;

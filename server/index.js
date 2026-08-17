@@ -5,6 +5,7 @@ import { assertRuntimeConfig, config, isCloudFunction, isProduction, uploadsDir 
 import { usingFirestore } from "./lib/db.js";
 import { errorHandler, notFound, route } from "./lib/http.js";
 import { ensureOwnerAccount } from "./domain/users.js";
+import { primeSettings } from "./domain/settings.js";
 import authRoutes from "./routes/auth.js";
 import publicRoutes from "./routes/public.js";
 import adminRoutes from "./routes/admin.js";
@@ -38,6 +39,13 @@ app.get("/api/health", route(async (_req, res) => {
     ownerAccount: bootstrap.username,
     maxBatch: config.maxBatch
   });
+}));
+
+// Keep the cached settings fresh so synchronous validators (the batch ceiling,
+// the bio length) enforce what the administrator configured, not the env default.
+app.use("/api", route(async (_req, _res, next) => {
+  await primeSettings();
+  next();
 }));
 
 app.use("/api/auth", authRoutes);

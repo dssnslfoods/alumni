@@ -1136,6 +1136,12 @@ function SettingsPanel() {
   return (
     <div className="panel">
       <h3>ตั้งค่าระบบ</h3>
+      <p className="panel-note">
+        <strong>รุ่นสูงสุด</strong> คือรุ่นล่าสุดที่สมาคมมี ใช้เป็นเพดานตรวจสอบทุกจุดที่มีการกรอกรุ่น —
+        หน้าค้นหาของนิสิตเก่า ตัวกรองรายชื่อ การนำเข้า Excel และการกำหนดรุ่นที่ตัวแทนรุ่นดูแล
+        <br />
+        ตั้งให้ตรงกับความจริงเพื่อกันการพิมพ์ผิด เช่น พิมพ์ 85 แทน 58 จะถูกปฏิเสธทันทีแทนที่จะสร้างรุ่นที่ไม่มีอยู่จริง
+      </p>
       <Alert>{error}</Alert>
       {message && <Alert tone="ok">{message}</Alert>}
       <form onSubmit={save}>
@@ -1146,8 +1152,20 @@ function SettingsPanel() {
         <div className="form-grid">
           <Field label="ข้อความเมื่อปิดรับข้อมูล" value={draft.closedMessage} setValue={(value) => setDraft({ ...draft, closedMessage: value })} />
           <Field label="ชื่อหนังสือ" value={draft.bookTitle} setValue={(value) => setDraft({ ...draft, bookTitle: value })} />
-          <Field label="รุ่นสูงสุด" value={String(draft.maxBatch)} setValue={(value) => setDraft({ ...draft, maxBatch: Number(value.replace(/\D/g, "")) || 88 })} inputMode="numeric" />
-          <Field label="ความยาวประวัติสูงสุด" value={String(draft.bioMaxLength)} setValue={(value) => setDraft({ ...draft, bioMaxLength: Number(value.replace(/\D/g, "")) || 500 })} inputMode="numeric" />
+          <Field
+            label="รุ่นสูงสุด"
+            value={String(draft.maxBatch)}
+            setValue={(value) => setDraft({ ...draft, maxBatch: Number(value.replace(/\D/g, "")) || 88 })}
+            hint="(รุ่นล่าสุดของสมาคม — ใช้ตรวจทุกจุดที่กรอกรุ่น)"
+            inputMode="numeric"
+          />
+          <Field
+            label="ความยาวประวัติสูงสุด"
+            value={String(draft.bioMaxLength)}
+            setValue={(value) => setDraft({ ...draft, bioMaxLength: Number(value.replace(/\D/g, "")) || 500 })}
+            hint="(จำนวนตัวอักษรของประวัติโดยย่อ)"
+            inputMode="numeric"
+          />
           <Field label="เวอร์ชันคำยินยอม PDPA" value={draft.pdpaVersion} setValue={(value) => setDraft({ ...draft, pdpaVersion: value })} hint="(เปลี่ยนเมื่อแก้ข้อความคำยินยอม)" />
         </div>
         <button className="next compact-btn">บันทึกการตั้งค่า</button>

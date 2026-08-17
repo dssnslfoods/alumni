@@ -3,6 +3,7 @@ import { config } from "../lib/env.js";
 import { countDocs, getDoc, listDocs, setDoc, updateDoc } from "../lib/db.js";
 import { hashIdCardLast5 } from "../lib/crypto.js";
 import { badRequest } from "../lib/http.js";
+import { effectiveMaxBatch } from "./settings.js";
 
 const { alumni: ALUMNI, submissions: SUBMISSIONS } = config.collections;
 
@@ -53,7 +54,7 @@ export function onlyDigits(value) {
 
 export function parseBatch(value) {
   const batch = Number(onlyDigits(value));
-  if (!Number.isInteger(batch) || batch < 1 || batch > config.maxBatch) return null;
+  if (!Number.isInteger(batch) || batch < 1 || batch > effectiveMaxBatch()) return null;
   return batch;
 }
 

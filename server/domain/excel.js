@@ -4,6 +4,7 @@ import { config } from "../lib/env.js";
 import { bulkSet, getDocsByIds, setDoc } from "../lib/db.js";
 import { newId } from "../lib/crypto.js";
 import { badRequest } from "../lib/http.js";
+import { effectiveMaxBatch } from "./settings.js";
 import {
   FOLLOW_UP_STATES,
   alumniId,
@@ -111,7 +112,7 @@ export function mapRow(row) {
   const errors = [];
   if (!firstName) errors.push("ไม่มีชื่อ");
   if (!lastName) errors.push("ไม่มีนามสกุล");
-  if (batch === null) errors.push(`รุ่นไม่ถูกต้อง (ต้องเป็น 1-${config.maxBatch})`);
+  if (batch === null) errors.push(`รุ่นไม่ถูกต้อง (ต้องเป็น 1-${effectiveMaxBatch()})`);
   if (idCardLast5.length !== 5) errors.push("เลขท้ายบัตรประชาชนต้องมี 5 หลัก");
   if (errors.length) return { ok: false, rowNumber: row.__row, errors };
 
@@ -375,7 +376,7 @@ const TEMPLATE_COLUMNS = [
   { header: "คำนำหน้า", width: 12, required: false, text: false, purpose: "คำนำหน้าชื่อสมัยเรียน เช่น นาย นางสาว", example: "นาย" },
   { header: "ชื่อ", width: 20, required: true, text: false, purpose: "ชื่อจริง “สมัยเรียน” ใช้ให้นิสิตเก่าค้นหาตัวเอง", example: "สมชาย" },
   { header: "นามสกุล", width: 22, required: true, text: false, purpose: "นามสกุล “สมัยเรียน” ใช้ให้นิสิตเก่าค้นหาตัวเอง", example: "ใจดี" },
-  { header: "รุ่น", width: 8, required: true, text: false, purpose: `ตัวเลข 1-${config.maxBatch} ใช้กรองก่อนค้นหาชื่อเสมอ`, example: 45 },
+  { header: "รุ่น", width: 8, required: true, text: false, purpose: `ตัวเลข 1-${effectiveMaxBatch()} ใช้กรองก่อนค้นหาชื่อเสมอ`, example: 45 },
   { header: "รหัสนิสิต", width: 14, required: false, text: true, purpose: "แนะนำอย่างยิ่ง — ทำให้นำเข้าไฟล์ซ้ำเป็นการอัปเดต ไม่สร้างข้อมูลซ้ำ", example: "2676061" },
   { header: "เลขท้ายบัตรประชาชน 5 หลัก", width: 26, required: true, text: true, purpose: "ใช้ยืนยันตัวตน เก็บแบบเข้ารหัสทางเดียว ไม่ปรากฏในหนังสือหรือไฟล์ส่งออก", example: "12345" },
   { header: "ชื่อปัจจุบัน", width: 20, required: false, text: false, purpose: "ถ้าสมาคมทราบว่าเปลี่ยนชื่อแล้ว ระบบจะเติมให้ล่วงหน้า (เจ้าตัวแก้ได้)", example: "สมชาย" },
@@ -434,11 +435,11 @@ export async function buildImportTemplate({ rows = [] } = {}) {
   sheet.dataValidations.add(`${columnLetter("รุ่น")}2:${columnLetter("รุ่น")}${lastRow}`, {
     type: "whole",
     operator: "between",
-    formulae: [1, config.maxBatch],
+    formulae: [1, effectiveMaxBatch()],
     allowBlank: true,
     showErrorMessage: true,
     errorTitle: "รุ่นไม่ถูกต้อง",
-    error: `กรุณากรอกรุ่นเป็นตัวเลข 1 ถึง ${config.maxBatch}`
+    error: `กรุณากรอกรุ่นเป็นตัวเลข 1 ถึง ${effectiveMaxBatch()}`
   });
 
   const idLetter = columnLetter("เลขท้ายบัตรประชาชน 5 หลัก");

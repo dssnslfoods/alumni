@@ -2,6 +2,7 @@ import { config } from "../lib/env.js";
 import { ConflictError, createDoc, deleteDoc, getDoc, listDocs, setDoc, updateDoc } from "../lib/db.js";
 import { generatePassword, hashPassword, newId, verifyPassword } from "../lib/crypto.js";
 import { badRequest, forbidden, notFound } from "../lib/http.js";
+import { effectiveMaxBatch } from "./settings.js";
 
 const { users: USERS, usernames: USERNAMES } = config.collections;
 
@@ -133,7 +134,7 @@ export async function createUser({ username, password, displayName, email = "", 
 
 export function normalizeBatchScope(scope) {
   if (!Array.isArray(scope) || !scope.length) return null;
-  const batches = [...new Set(scope.map((value) => Number(String(value).trim())).filter((value) => Number.isInteger(value) && value >= 1 && value <= config.maxBatch))];
+  const batches = [...new Set(scope.map((value) => Number(String(value).trim())).filter((value) => Number.isInteger(value) && value >= 1 && value <= effectiveMaxBatch()))];
   return batches.length ? batches.sort((a, b) => a - b) : null;
 }
 

@@ -33,6 +33,7 @@ const contactOptions = [
 export function Yearbook() {
   const [settings, setSettings] = useState({ maxBatch: 88, bioMaxLength: 500, submissionOpen: true, closedMessage: "" });
   const [step, setStep] = useState(0);
+  const [intent, setIntent] = useState("yes");
   const [batch, setBatch] = useState("");
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState([]);
@@ -112,7 +113,7 @@ export function Yearbook() {
         setContactValues((current) => ({ ...current, ...Object.fromEntries(data.alum.contacts.map((contact) => [contact.type, contact.value])) }));
       }
       if (data.alum.pdpa?.consent) setPdpa("yes");
-      move(3);
+      move(intent === "no" ? 8 : 3);
     });
   };
 
@@ -154,6 +155,11 @@ export function Yearbook() {
     probe.onerror = () => URL.revokeObjectURL(url);
     probe.src = url;
   }
+
+  const confirmDecline = () => run(async () => {
+    await api("/api/public/decline", { method: "POST", auth: false, headers: { "x-submit-token": submitToken } });
+    move(7);
+  });
 
   const submit = (event) => {
     event.preventDefault();
@@ -238,8 +244,12 @@ export function Yearbook() {
           <h1>ยินดีต้อนรับ</h1>
           <p className="intro">ส่งข้อมูลส่วนตัวสำหรับจัดทำหนังสืออนุสรณ์ สมาคมนิสิตเก่าคณะเภสัชศาสตร์ จุฬาลงกรณ์มหาวิทยาลัย</p>
           <div className="choice-row">
-            <button className="intent yes" onClick={() => move(1)}><Check /><span>มีความประสงค์</span><small>ส่งข้อมูลเพื่อลงหนังสืออนุสรณ์</small></button>
-            <button className="intent no" onClick={() => move(7)}><X /><span>ไม่มีความประสงค์</span><small>สิ้นสุดขั้นตอนโดยไม่เก็บข้อมูล</small></button>
+            <button className="intent yes" onClick={() => { setIntent("yes"); move(1); }}>
+              <Check /><span>มีความประสงค์</span><small>ส่งข้อมูลเพื่อลงหนังสืออนุสรณ์</small>
+            </button>
+            <button className="intent no" onClick={() => { setIntent("no"); move(1); }}>
+              <X /><span>ไม่มีความประสงค์</span><small>ยืนยันตัวตนเพื่อแจ้งความประสงค์</small>
+            </button>
           </div>
         </section>
       )}
@@ -288,7 +298,11 @@ export function Yearbook() {
             <span>{selected?.firstName} {selected?.lastName}</span>
             <small>รุ่น {selected?.batch}</small>
           </div>
-          <p>เพื่อปกป้องข้อมูลส่วนบุคคล กรุณากรอกเลขท้ายบัตรประชาชน 5 หลัก</p>
+          <p>
+            {intent === "no"
+              ? "เพื่อบันทึกความประสงค์ของท่านให้ถูกคน กรุณายืนยันตัวตนด้วยเลขท้ายบัตรประชาชน 5 หลัก"
+              : "เพื่อปกป้องข้อมูลส่วนบุคคล กรุณากรอกเลขท้ายบัตรประชาชน 5 หลัก"}
+          </p>
           <form onSubmit={verify}>
             <label className="large-field">
               <span>เลขท้ายบัตรประชาชน 5 หลัก</span>
@@ -497,10 +511,50 @@ export function Yearbook() {
         </section>
       )}
 
+      {step === 8 && alum && (
+        <section className="screen compact">
+          <p className="kicker">ยืนยันความประสงค์</p>
+          <h2>ไม่ประสงค์ลงหนังสืออนุสรณ์</h2>
+          <div className="identity">
+            <span>{alum.legalFirstName} {alum.legalLastName}</span>
+            <small>รุ่น {alum.batch}</small>
+          </div>
+
+          {alum.status === "submitted" ? (
+            <div className="decline-warning">
+              <strong>ท่านเคยส่งข้อมูลไว้แล้ว</strong>
+              <span>
+                หากยืนยันไม่ประสงค์ลงหนังสือ ระบบจะ<strong>ลบรูปถ่าย ประวัติโดยย่อ และช่องทางติดต่อ</strong>
+                ที่ท่านเคยส่งไว้ออกทั้งหมด และถอนความยินยอมในการเผยแพร่ ข้อมูลเหล่านี้จะกู้คืนไม่ได้
+              </span>
+            </div>
+          ) : (
+            <p>
+              ระบบจะบันทึกว่าท่านไม่ประสงค์ลงหนังสือ เพื่อให้ตัวแทนรุ่นไม่ต้องติดตามท่านอีก
+              โดยไม่มีการเก็บรูปถ่ายหรือข้อมูลส่วนตัวใด ๆ
+            </p>
+          )}
+
+          <p className="privacy-note">
+            <ShieldCheck /> หากเปลี่ยนใจภายหลัง ท่านกลับมายืนยันตัวตนแล้วส่งข้อมูลใหม่ได้ตลอดจนกว่าจะปิดรับ
+          </p>
+
+          <button className="decline-confirm" disabled={busy} onClick={confirmDecline}>
+            {busy ? "กำลังบันทึก…" : <>ยืนยันไม่ประสงค์ลงหนังสือ <Check /></>}
+          </button>
+          <button className="back" onClick={() => { setIntent("yes"); move(3); }}>
+            <ChevronLeft /> เปลี่ยนใจ ขอส่งข้อมูลแทน
+          </button>
+        </section>
+      )}
+
       {step === 7 && (
         <section className="screen thank">
           <h1>ขอบพระคุณครับ</h1>
-          <p>ระบบสิ้นสุดขั้นตอนตามความประสงค์ของท่าน โดยไม่มีการบันทึกข้อมูลสำหรับหนังสืออนุสรณ์</p>
+          <p>
+            ระบบบันทึกความประสงค์ของท่านเรียบร้อยแล้ว จะไม่มีข้อมูลของท่านปรากฏในหนังสืออนุสรณ์
+            และตัวแทนรุ่นจะไม่ติดตามท่านในเรื่องนี้อีก
+          </p>
           <a href="/">กลับสู่หน้าแรก</a>
         </section>
       )}

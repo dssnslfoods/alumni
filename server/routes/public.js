@@ -4,7 +4,7 @@ import { signToken, verifyToken } from "../lib/crypto.js";
 import { badRequest, clientIp, createRateLimiter, forbidden, notFound, route, tooMany, unauthorized } from "../lib/http.js";
 import { audit } from "../lib/audit.js";
 import { multipartBody } from "../lib/multipart.js";
-import { getSettings } from "../domain/settings.js";
+import { effectiveMaxBatch, getSettings } from "../domain/settings.js";
 import {
   appendNameHistory,
   findAlumniById,
@@ -69,7 +69,7 @@ router.get("/settings", route(async (_req, res) => {
 router.post("/search", route(async (req, res) => {
   if (!searchLimiter(clientIp(req))) throw tooMany("ค้นหาถี่เกินไป กรุณารอสักครู่");
   const batch = parseBatch(req.body?.batch);
-  if (batch === null) throw badRequest(`กรุณาระบุรุ่นเป็นตัวเลข 1-${config.maxBatch}`);
+  if (batch === null) throw badRequest(`กรุณาระบุรุ่นเป็นตัวเลข 1-${effectiveMaxBatch()}`);
   const matches = await searchAlumni(batch, req.body?.query);
   res.json({ matches: matches.map(searchResult) });
 }));
@@ -95,12 +95,37 @@ router.post("/my-record", loadUser, route(async (req, res) => {
   res.json({ submitToken: issueSubmitToken(record.id), expiresInMinutes: SUBMIT_TOKEN_MINUTES, alum: selfView(record) });
 }));
 
+/**
+ * Decline to appear in the book.
+ *
+ * This is also the consent-withdrawal path: someone who already submitted and
+ * later changes their mind must not be left with a photo and contact details
+ * sitting in the export. The roster entry stays (it is the association's own
+ * record) but everything that would have been printed is removed.
+ */
 router.post("/decline", route(async (req, res) => {
   const record = await recordFromSubmitToken(req);
-  await saveAlumni(record.id, { status: "declined", declinedAt: new Date().toISOString() });
-  await syncSubmission({ ...record, status: "declined" });
-  await audit(req, "public.decline", { targetType: "alumni", targetId: record.id });
-  res.json({ ok: true });
+  const settings = await getSettings();
+  const hadSubmitted = record.status === "submitted";
+
+  if (record.photo?.storagePath) await deletePhoto(record.photo);
+
+  const now = new Date().toISOString();
+  const patch = {
+    status: "declined",
+    declinedAt: now,
+    photo: null,
+    bio: "",
+    contacts: [],
+    pdpa: { consent: false, consentAt: "", version: settings.pdpaVersion, withdrawnAt: now },
+    submittedAt: "",
+    updatedBy: "self"
+  };
+
+  await saveAlumni(record.id, patch);
+  await syncSubmission({ ...record, ...patch });
+  await audit(req, "public.decline", { targetType: "alumni", targetId: record.id, meta: { hadSubmitted } });
+  res.json({ ok: true, hadSubmitted });
 }));
 
 router.post("/submit", multipartBody({ maxFiles: 1 }), route(async (req, res) => {

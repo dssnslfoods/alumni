@@ -368,3 +368,11 @@ header strong,header span { display:block; } header strong { font-size:1.03rem; 
 .follow-contacted, .follow-abroad { color:#1c5d2b; border-color:#bcd7b8!important; background:#eef6ec!important; }
 .row-memorial td { background:#faf8fc; }
 .row-memorial td:first-child { box-shadow:inset 3px 0 0 #9b86b3; }
+
+/* ---------- ยืนยันไม่ประสงค์ลงหนังสือ ---------- */
+.decline-warning { display:grid; gap:6px; margin:20px 0; padding:16px 18px; border-left:4px solid var(--red); background:#f9ecea; }
+.decline-warning strong { color:#7a3330; }
+.decline-warning span { color:#8a4b47; line-height:1.75; }
+.decline-confirm { min-height:52px; margin-top:26px; padding:0 22px; display:inline-flex; align-items:center; justify-content:center; gap:10px; color:#fff; border:0; background:var(--red); font-weight:700; }
+.decline-confirm:hover:not(:disabled) { background:#8d2f2b; }
+.decline-confirm:disabled { cursor:not-allowed; opacity:.55; }
