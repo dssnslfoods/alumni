@@ -356,8 +356,27 @@ export async function syncSubmission(record) {
  *
  * Nothing personal is exposed — only counts per batch.
  */
-let statsCache = { value: null, at: 0 };
+let statsCache = { batches: null, value: null, at: 0 };
+
+/** How long before the figures are rebuilt from the database. */
 const STATS_TTL_MS = 5 * 60 * 1000;
+
+/** Derive the published shape from the per-batch counts. */
+function shapeStats(batches, roster, submitted) {
+  const withRate = batches.map((item) => ({ ...item, rate: item.roster ? Math.round((item.submitted / item.roster) * 100) : 0 }));
+  return {
+    roster,
+    submitted,
+    rate: roster ? Math.round((submitted / roster) * 100) : 0,
+    batchCount: withRate.length,
+    // Batches worth celebrating, and batches worth nudging. A batch needs a few
+    // people on the register before a percentage means anything.
+    topByRate: [...withRate].filter((item) => item.roster >= 5 && item.submitted > 0).sort((left, right) => right.rate - left.rate || right.submitted - left.submitted).slice(0, 3),
+    topByCount: [...withRate].filter((item) => item.submitted > 0).sort((left, right) => right.submitted - left.submitted).slice(0, 3),
+    needNudge: [...withRate].filter((item) => item.roster >= 5).sort((left, right) => left.rate - right.rate || right.roster - left.roster).slice(0, 3),
+    updatedAt: new Date().toISOString()
+  };
+}
 
 export async function publicStats({ force = false } = {}) {
   if (!force && statsCache.value && Date.now() - statsCache.at < STATS_TTL_MS) return statsCache.value;
@@ -379,27 +398,40 @@ export async function publicStats({ force = false } = {}) {
     counted.forEach((item) => { if (item.roster > 0) batches.push(item); });
   }
 
-  const withRate = batches.map((item) => ({ ...item, rate: item.roster ? Math.round((item.submitted / item.roster) * 100) : 0 }));
-  const value = {
-    roster,
-    submitted,
-    rate: roster ? Math.round((submitted / roster) * 100) : 0,
-    batchCount: withRate.length,
-    // Batches worth celebrating, and batches worth nudging. A batch needs a few
-    // people on the register before a percentage means anything.
-    topByRate: [...withRate].filter((item) => item.roster >= 5 && item.submitted > 0).sort((left, right) => right.rate - left.rate || right.submitted - left.submitted).slice(0, 3),
-    topByCount: [...withRate].filter((item) => item.submitted > 0).sort((left, right) => right.submitted - left.submitted).slice(0, 3),
-    needNudge: [...withRate].filter((item) => item.roster >= 5).sort((left, right) => left.rate - right.rate || right.roster - left.roster).slice(0, 3),
-    updatedAt: new Date().toISOString()
-  };
-
-  statsCache = { value, at: Date.now() };
+  const value = shapeStats(batches, roster, submitted);
+  statsCache = { batches, value, at: Date.now() };
   return value;
 }
 
-/** เรียกเมื่อมีการส่งข้อมูลใหม่ เพื่อให้ตัวเลขบนหน้าแรกขยับตามจริง */
+/**
+ * Adjust the cached figures in place after a submission or a withdrawal.
+ *
+ * The exact change is known — one person, one batch — so the counts are moved
+ * directly instead of re-running ~176 count queries. The ticker therefore
+ * shows the new number immediately, a burst of submissions costs nothing, and
+ * the periodic full rebuild still corrects any drift.
+ */
+export function bumpPublicStats(batch, delta) {
+  if (!statsCache.value || !statsCache.batches) return;
+
+  const entry = statsCache.batches.find((item) => item.batch === Number(batch));
+  if (!entry) {
+    // Batch not in the cached snapshot — let the next request rebuild instead.
+    statsCache = { batches: null, value: null, at: 0 };
+    return;
+  }
+
+  entry.submitted = Math.max(0, entry.submitted + delta);
+  const submitted = Math.max(0, statsCache.value.submitted + delta);
+  statsCache = {
+    ...statsCache,
+    value: shapeStats(statsCache.batches, statsCache.value.roster, submitted)
+  };
+}
+
+/** Force a rebuild — used after a bulk import or a data wipe. */
 export function invalidatePublicStats() {
-  statsCache = { value: null, at: 0 };
+  statsCache = { batches: null, value: null, at: 0 };
 }
 
 /** นับตามสถานะการติดตาม สำหรับแดชบอร์ดและหน้ารายชื่อ */

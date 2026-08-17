@@ -34,6 +34,7 @@ import {
   normalizeText,
   parseBatch,
   parseBatchList,
+  invalidatePublicStats,
   saveAlumni,
   syncSubmission,
   validateContacts,
@@ -284,6 +285,7 @@ router.post("/import", requirePermission("alumni.import"), multipartBody({ maxFi
     actor: req.user,
     dryRun: String(req.body?.dryRun) === "true"
   });
+  if (!job.dryRun) invalidatePublicStats();
   await audit(req, job.dryRun ? "alumni.import.preview" : "alumni.import", {
     targetType: "importJob",
     targetId: job.jobId,
@@ -342,6 +344,7 @@ router.post("/import/commit", requirePermission("alumni.import"), route(async (r
     skipped: Number(body.skipped) || 0,
     errors: Array.isArray(body.errors) ? body.errors.slice(0, 200) : []
   });
+  invalidatePublicStats();
   await audit(req, "alumni.import", {
     targetType: "importJob",
     targetId: job.jobId,
@@ -471,6 +474,7 @@ router.post("/reset", requirePermission("data.reset"), route(async (req, res) =>
     await deleteAllPhotos()
   ];
 
+  invalidatePublicStats();
   await audit(req, "data.reset", { meta: { alumni, submissions, importJobs, photos, before } });
   res.json({ ok: true, deleted: { alumni, submissions, importJobs, photos } });
 }));

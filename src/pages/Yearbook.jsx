@@ -62,7 +62,36 @@ export function Yearbook() {
 
   useEffect(() => {
     api("/api/public/settings", { auth: false }).then(setSettings).catch(() => {});
-    api("/api/public/stats", { auth: false }).then(setStats).catch(() => {});
+  }, []);
+
+  /**
+   * Keep the ticker current without a reload.
+   *
+   * Polls once a minute, but only while the tab is actually visible — a page
+   * left open in a background tab for a day should not keep calling the API.
+   * Returning to the tab refreshes immediately so the numbers are never stale
+   * on screen.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      api("/api/public/stats", { auth: false })
+        .then((data) => { if (!cancelled) setStats(data); })
+        .catch(() => {});
+    };
+    // Only the repeat calls are gated: a page can be opened into a background
+    // tab, and skipping the first load there would leave the ticker empty for
+    // as long as the tab stays unfocused.
+    const loadIfVisible = () => { if (document.visibilityState === "visible") load(); };
+
+    load();
+    const timer = setInterval(loadIfVisible, 60_000);
+    document.addEventListener("visibilitychange", loadIfVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", loadIfVisible);
+    };
   }, []);
 
   const nameChanged = alum && `${firstName} ${lastName}`.trim() !== `${alum.currentFirstName} ${alum.currentLastName}`.trim();
