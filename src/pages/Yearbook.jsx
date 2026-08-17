@@ -5,6 +5,22 @@ import { api } from "../lib/api.js";
 
 const MAX_PHOTO_EDGE = 2000;
 
+/** ต้องตรงกับ CONTACT_RULES ที่ server/domain/alumni.js */
+const CONTACT_RULES = {
+  facebook: { placeholder: "somchai.jaidee หรือ facebook.com/somchai.jaidee", hint: "ใส่ชื่อผู้ใช้ หรือวางลิงก์โปรไฟล์ก็ได้" },
+  instagram: { placeholder: "somchai_j", hint: "ใส่ชื่อผู้ใช้ ไม่ต้องใส่ @" },
+  line: { placeholder: "somchai2569", hint: "ใส่ LINE ID ไม่ต้องใส่ @ (บัญชีทางการให้ใส่ @ ด้วย)" },
+  phone: { placeholder: "081-234-5678", hint: "ตัวเลข 9-10 หลัก ระบบจัดรูปแบบให้อัตโนมัติ" }
+};
+
+/** จัดรูปแบบเบอร์ระหว่างพิมพ์ ให้เห็นผลทันทีแบบเดียวกับที่ server จะบันทึก */
+function formatPhoneInput(value) {
+  const digits = String(value).replace(/\D/g, "").slice(0, 10);
+  if (digits.length > 6) return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+  if (digits.length > 3) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return digits;
+}
+
 const steps = ["ความประสงค์", "ค้นหารายชื่อ", "ยืนยันตัวตน", "ข้อมูลหนังสือ", "รูปและติดต่อ", "ยืนยันส่ง"];
 const contactOptions = [
   ["facebook", "Facebook", Facebook],
@@ -24,6 +40,7 @@ export function Yearbook() {
   const [last5, setLast5] = useState("");
   const [submitToken, setSubmitToken] = useState("");
   const [alum, setAlum] = useState(null);
+  const [editing, setEditing] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [photoChoice, setPhotoChoice] = useState("upload");
@@ -82,13 +99,18 @@ export function Yearbook() {
       const data = await api("/api/public/verify", { method: "POST", auth: false, body: { alumniId: selected.id, idCardLast5: last5 } });
       setSubmitToken(data.submitToken);
       setAlum(data.alum);
+      // Re-submitting is an edit: everything already on file is loaded back in
+      // so the alumnus changes one field instead of retyping the whole form.
+      setEditing(data.alum.status === "submitted");
       setFirstName(data.alum.currentFirstName || data.alum.legalFirstName);
       setLastName(data.alum.currentLastName || data.alum.legalLastName);
       setBio(data.alum.bio || "");
+      if (data.alum.photo?.choice) setPhotoChoice(data.alum.photo.choice);
       if (data.alum.contacts?.length) {
         setSelectedContacts(data.alum.contacts.map((contact) => contact.type));
         setContactValues((current) => ({ ...current, ...Object.fromEntries(data.alum.contacts.map((contact) => [contact.type, contact.value])) }));
       }
+      if (data.alum.pdpa?.consent) setPdpa("yes");
       move(3);
     });
   };
@@ -157,26 +179,47 @@ export function Yearbook() {
   };
 
   if (step === 6) {
+    const print = photoResult?.print;
     return (
       <Shell>
         <section className="screen success">
-          <div><Check /></div>
-          <p className="kicker">ส่งข้อมูลสำเร็จ</p>
+          <div className="success-mark"><Check /></div>
+          <p className="kicker">{editing ? "บันทึกการแก้ไขสำเร็จ" : "ส่งข้อมูลสำเร็จ"}</p>
           <h1>ขอบพระคุณครับ</h1>
-          <p>ระบบบันทึกข้อมูลสำหรับหนังสืออนุสรณ์เรียบร้อยแล้ว ท่านสามารถตรวจสอบความถูกต้องกับตัวแทนรุ่นของท่านได้ในภายหลัง</p>
+          <p className="success-lead">
+            {editing ? "ระบบบันทึกข้อมูลที่แก้ไขทับของเดิมเรียบร้อยแล้ว" : "ระบบบันทึกข้อมูลสำหรับหนังสืออนุสรณ์เรียบร้อยแล้ว"}
+            <br />
+            หากต้องการแก้ไขอีกครั้ง สามารถกลับมายืนยันตัวตนแล้วแก้ไขได้ตลอดจนกว่าจะปิดรับข้อมูล
+          </p>
+
           {photoResult && (
             <div className="photo-done">
-              <strong>รูปถ่ายของท่านถูกปรับให้พร้อมพิมพ์แล้ว</strong>
-              <span>
-                {photoResult.width} x {photoResult.height} พิกเซล · {(photoResult.bytes / 1024).toFixed(0)} KB
-                {photoResult.print && ` · พิมพ์ได้ ${photoResult.print.widthMm} x ${photoResult.print.heightMm} มม. ที่ ${photoResult.print.dpi} dpi`}
-              </span>
-              {photoResult.print?.quality === "low" && (
-                <em>หมายเหตุ: ความละเอียดค่อนข้างต่ำ หากมีไฟล์ที่ใหญ่กว่านี้สามารถส่งใหม่ได้</em>
+              <h3>รูปถ่ายของท่านถูกปรับให้พร้อมพิมพ์แล้ว</h3>
+              <dl className="photo-done-facts">
+                <div>
+                  <dt>ขนาดภาพ</dt>
+                  <dd>{photoResult.width.toLocaleString("th-TH")} × {photoResult.height.toLocaleString("th-TH")} พิกเซล</dd>
+                </div>
+                <div>
+                  <dt>ขนาดไฟล์</dt>
+                  <dd>{(photoResult.bytes / 1024).toFixed(0)} KB</dd>
+                </div>
+                {print && (
+                  <div>
+                    <dt>ขนาดพิมพ์</dt>
+                    <dd>{print.widthMm} × {print.heightMm} มม. ที่ {print.dpi} dpi</dd>
+                  </div>
+                )}
+              </dl>
+              {print?.quality === "low" && (
+                <p className="photo-done-note">
+                  ความละเอียดค่อนข้างต่ำสำหรับงานพิมพ์ หากมีไฟล์ต้นฉบับที่ใหญ่กว่านี้ สามารถกลับมาส่งใหม่ได้
+                </p>
               )}
             </div>
           )}
-          <a href="/">ทำรายการใหม่</a>
+
+          <a className="success-action" href="/">ทำรายการใหม่</a>
         </section>
       </Shell>
     );
@@ -227,7 +270,7 @@ export function Yearbook() {
               <button key={item.id} className="result" onClick={() => { setSelected(item); move(3); }}>
                 <UserRoundCheck />
                 <span>{item.firstName} {item.lastName}</span>
-                <small>{item.alreadySubmitted ? "ส่งข้อมูลแล้ว" : item.studentId ? `รหัสนิสิต ${item.studentId}` : ""}</small>
+                <small>{item.alreadySubmitted ? "ส่งข้อมูลแล้ว — กดเพื่อแก้ไข" : item.studentId ? `รหัสนิสิต ${item.studentId}` : ""}</small>
                 <ArrowRight />
               </button>
             ))}
@@ -260,7 +303,13 @@ export function Yearbook() {
       {step === 3 && alum && (
         <section className="screen">
           <p className="kicker">ข้อมูลสำหรับหนังสืออนุสรณ์</p>
-          <h2>ชื่อที่จะใช้ในหนังสือ</h2>
+          <h2>{editing ? "แก้ไขข้อมูลของท่าน" : "ชื่อที่จะใช้ในหนังสือ"}</h2>
+          {editing && (
+            <div className="editing-banner">
+              <strong>ท่านเคยส่งข้อมูลไว้แล้ว{alum.submittedAt ? ` เมื่อ ${new Date(alum.submittedAt).toLocaleDateString("th-TH", { day: "numeric", month: "long", year: "numeric" })}` : ""}</strong>
+              <span>ระบบดึงข้อมูลเดิมขึ้นมาให้แล้ว ท่านแก้ไขเฉพาะส่วนที่ต้องการ แล้วกดส่งอีกครั้งเพื่อบันทึกทับของเดิมได้เลย</span>
+            </div>
+          )}
           <p>ตรวจสอบชื่อและนามสกุล หากมีการเปลี่ยนแปลงสามารถแก้ไขได้ทันที</p>
           <div className="two-fields">
             <Field label="ชื่อ" value={firstName} setValue={setFirstName} />
@@ -351,7 +400,18 @@ export function Yearbook() {
             ))}
           </div>
           {selectedContactDetails.map((contact) => (
-            <Field key={contact.type} label={contact.label} value={contact.value} setValue={(value) => setContactValues({ ...contactValues, [contact.type]: value })} />
+            <Field
+              key={contact.type}
+              label={contact.label}
+              value={contact.value}
+              setValue={(value) => setContactValues({
+                ...contactValues,
+                [contact.type]: contact.type === "phone" ? formatPhoneInput(value) : value
+              })}
+              placeholder={CONTACT_RULES[contact.type]?.placeholder}
+              hint={CONTACT_RULES[contact.type]?.hint}
+              inputMode={contact.type === "phone" ? "tel" : "text"}
+            />
           ))}
           <button className="next" onClick={() => move(5)}>ตรวจสอบข้อมูล <ArrowRight /></button>
           <button className="back" onClick={() => move(3)}><ChevronLeft /> ย้อนกลับ</button>
@@ -365,6 +425,12 @@ export function Yearbook() {
           <div className="review">
             <Review label="ชื่อในหนังสือ" value={`${firstName} ${lastName}`} />
             <Review label="รูปภาพ" value={photoChoice === "placeholder" ? "ไม่แสดงรูป ใช้ภาพคณะแทน" : photo?.name || (alum?.photo?.downloadUrl ? "ใช้รูปเดิมที่เคยส่งไว้" : "ยังไม่ได้เลือกรูป")} />
+            {editing && alum?.photo?.downloadUrl && !photo && photoChoice === "upload" && (
+              <div className="existing-photo">
+                <span>รูปเดิมของท่าน</span>
+                <img src={alum.photo.downloadUrl} alt="รูปถ่ายที่เคยส่งไว้" />
+              </div>
+            )}
             <Review label="ช่องทางติดต่อ" value={selectedContactDetails.length ? selectedContactDetails.map((item) => `${item.label}: ${item.value}`).join(" | ") : "ไม่ประสงค์แสดง"} />
             <Review label="ประวัติโดยย่อ" value={bio || "ไม่ระบุ"} />
           </div>
@@ -388,7 +454,7 @@ export function Yearbook() {
           )}
           <form onSubmit={submit}>
             <button className="submit" disabled={busy || pdpa !== "yes"}>
-              {busy ? "กำลังส่งข้อมูล…" : <>ยืนยันและส่งข้อมูล <Check /></>}
+              {busy ? "กำลังส่งข้อมูล…" : <>{editing ? "บันทึกการแก้ไข" : "ยืนยันและส่งข้อมูล"} <Check /></>}
             </button>
           </form>
           <button className="back" onClick={() => move(4)}><ChevronLeft /> ย้อนกลับ</button>

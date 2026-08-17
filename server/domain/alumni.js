@@ -170,20 +170,117 @@ export function selfView(record) {
   return safe;
 }
 
+/**
+ * Contact rules, shared with the browser so the hint text and the validation
+ * can never drift apart.
+ *
+ * Everything is normalized to one canonical form before storage — people type
+ * "@somchai", "line.me/ti/p/somchai" and "  Somchai " for the same ID, and the
+ * printed book has to read consistently.
+ */
+export const CONTACT_RULES = {
+  facebook: {
+    label: "Facebook",
+    placeholder: "somchai.jaidee หรือ facebook.com/somchai.jaidee",
+    hint: "ใส่ชื่อผู้ใช้ หรือวางลิงก์โปรไฟล์ก็ได้",
+    example: "somchai.jaidee"
+  },
+  instagram: {
+    label: "Instagram",
+    placeholder: "somchai_j",
+    hint: "ใส่ชื่อผู้ใช้ ไม่ต้องใส่ @",
+    example: "somchai_j"
+  },
+  line: {
+    label: "LINE ID",
+    placeholder: "somchai2569",
+    hint: "ใส่ LINE ID ไม่ต้องใส่ @ (ถ้าเป็นบัญชีทางการให้ใส่ @ ด้วย)",
+    example: "somchai2569"
+  },
+  phone: {
+    label: "โทรศัพท์",
+    placeholder: "081-234-5678",
+    hint: "ตัวเลข 9-10 หลัก ระบบจัดรูปแบบให้อัตโนมัติ",
+    example: "081-234-5678"
+  }
+};
+
+/** 0812345678 → 081-234-5678, 021234567 → 02-123-4567 */
+function formatThaiPhone(digits) {
+  if (digits.length === 10) return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+  if (digits.length === 9) return `${digits.slice(0, 2)}-${digits.slice(2, 5)}-${digits.slice(5)}`;
+  return digits;
+}
+
+/**
+ * Pull the handle out of a pasted profile link.
+ *
+ * Takes the LAST path segment, because the handle sits at different depths per
+ * service — instagram.com/<id> but line.me/ti/p/<id>.
+ */
+function handleFromUrl(value, hosts) {
+  const match = String(value).match(/^(?:https?:\/\/)?(?:www\.)?([^/\s]+)\/(.+)$/i);
+  if (!match || !hosts.some((host) => match[1].toLowerCase().includes(host))) return null;
+
+  const segments = match[2].split(/[/?#&]/).filter(Boolean);
+  const numericId = segments.find((segment) => /^id=\d+$/.test(segment));
+  const last = numericId ? numericId.slice(3) : segments[segments.length - 1] || "";
+  try {
+    return decodeURIComponent(last);
+  } catch {
+    return last;
+  }
+}
+
+function normalizeContact(type, raw) {
+  const value = normalizeText(raw).replace(/\s+/g, type === "phone" ? "" : " ").trim();
+  if (!value) throw badRequest(`กรุณากรอก${CONTACT_RULES[type].label}`);
+
+  if (type === "phone") {
+    const digits = onlyDigits(value);
+    if (digits.length < 9 || digits.length > 10) throw badRequest("หมายเลขโทรศัพท์ต้องเป็นตัวเลข 9-10 หลัก เช่น 081-234-5678");
+    if (!digits.startsWith("0")) throw badRequest("หมายเลขโทรศัพท์ต้องขึ้นต้นด้วย 0");
+    return formatThaiPhone(digits);
+  }
+
+  if (type === "line") {
+    // LINE official accounts legitimately start with @; personal IDs do not.
+    const official = value.startsWith("@");
+    const id = (handleFromUrl(value, ["line.me", "line.naver"]) || value).replace(/^@/, "").trim();
+    if (/\s/.test(id)) throw badRequest("LINE ID ต้องไม่มีช่องว่าง กรุณาตรวจสอบอีกครั้ง");
+    if (!/^[A-Za-z0-9._-]{2,32}$/.test(id)) {
+      throw badRequest("LINE ID ใช้ได้เฉพาะ a-z, 0-9, จุด, ขีดกลาง และขีดล่าง ยาว 2-32 ตัว");
+    }
+    return official ? `@${id}` : id;
+  }
+
+  if (type === "instagram") {
+    const handle = (handleFromUrl(value, ["instagram.com"]) || value).replace(/^@/, "").trim();
+    if (/\s/.test(handle)) throw badRequest("ชื่อผู้ใช้ Instagram ต้องไม่มีช่องว่าง กรุณาตรวจสอบอีกครั้ง");
+    if (!/^[A-Za-z0-9._]{1,30}$/.test(handle)) {
+      throw badRequest("Instagram ใช้ได้เฉพาะ a-z, 0-9, จุด และขีดล่าง ยาวไม่เกิน 30 ตัว");
+    }
+    return handle;
+  }
+
+  // Facebook allows Thai vanity names and numeric profile ids, so keep the
+  // handle as typed once the URL wrapper and stray @ are removed.
+  const handle = (handleFromUrl(value, ["facebook.com", "fb.com", "fb.me"]) || value).replace(/^@/, "").trim();
+  if (handle.length < 2 || handle.length > 80) throw badRequest("ชื่อผู้ใช้ Facebook ยาว 2-80 ตัวอักษร");
+  if (/\s{2,}|[<>"']/.test(handle)) throw badRequest("ชื่อผู้ใช้ Facebook มีอักขระที่ไม่รองรับ");
+  return handle;
+}
+
 export function validateContacts(input) {
   const contacts = Array.isArray(input) ? input : [];
   if (contacts.length > CONTACT_TYPES.length) throw badRequest("เลือกช่องทางติดต่อได้สูงสุด 4 ช่องทาง");
   const seen = new Set();
   return contacts.map((contact) => {
     const type = String(contact?.type || "").toLowerCase();
-    const value = normalizeText(contact?.value);
     if (!CONTACT_TYPES.includes(type)) throw badRequest("ช่องทางติดต่อไม่ถูกต้อง");
-    if (!value) throw badRequest("กรุณากรอกข้อมูลในทุกช่องทางติดต่อที่เลือก");
-    if (value.length > 120) throw badRequest("ข้อมูลช่องทางติดต่อยาวเกินไป");
-    if (type === "phone" && onlyDigits(value).length < 9) throw badRequest("หมายเลขโทรศัพท์ไม่ถูกต้อง");
     if (seen.has(type)) throw badRequest("เลือกช่องทางติดต่อซ้ำกัน");
     seen.add(type);
-    return { type, value };
+    return { type, value: normalizeContact(type, contact?.value) };
   });
 }
 
