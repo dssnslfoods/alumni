@@ -345,6 +345,63 @@ export async function syncSubmission(record) {
  * the records. `byBatch` carries the roster size alongside the response count
  * so the dashboard can show a real response *rate* per batch, not just a total.
  */
+/**
+ * Aggregate figures for the public welcome page.
+ *
+ * The landing page is the most-visited page in the system, so this must never
+ * scan the collection: at 10,000 records that would be 10,000 document reads
+ * per visitor. Instead it uses Firestore count aggregations (billed per 1,000
+ * matched documents, not per document) and caches the result, so a busy day
+ * costs a few hundred reads in total.
+ *
+ * Nothing personal is exposed — only counts per batch.
+ */
+let statsCache = { value: null, at: 0 };
+const STATS_TTL_MS = 5 * 60 * 1000;
+
+export async function publicStats({ force = false } = {}) {
+  if (!force && statsCache.value && Date.now() - statsCache.at < STATS_TTL_MS) return statsCache.value;
+
+  const maxBatch = effectiveMaxBatch();
+  const [roster, submitted] = await Promise.all([countDocs(ALUMNI), countDocs(ALUMNI, [["status", "==", "submitted"]])]);
+
+  const batches = [];
+  const numbers = Array.from({ length: maxBatch }, (_, index) => index + 1);
+  for (let start = 0; start < numbers.length; start += 20) {
+    const chunk = numbers.slice(start, start + 20);
+    const counted = await Promise.all(chunk.map(async (batch) => {
+      const [batchRoster, batchSubmitted] = await Promise.all([
+        countDocs(ALUMNI, [["batch", "==", batch]]),
+        countDocs(ALUMNI, [["batch", "==", batch], ["status", "==", "submitted"]])
+      ]);
+      return { batch, roster: batchRoster, submitted: batchSubmitted };
+    }));
+    counted.forEach((item) => { if (item.roster > 0) batches.push(item); });
+  }
+
+  const withRate = batches.map((item) => ({ ...item, rate: item.roster ? Math.round((item.submitted / item.roster) * 100) : 0 }));
+  const value = {
+    roster,
+    submitted,
+    rate: roster ? Math.round((submitted / roster) * 100) : 0,
+    batchCount: withRate.length,
+    // Batches worth celebrating, and batches worth nudging. A batch needs a few
+    // people on the register before a percentage means anything.
+    topByRate: [...withRate].filter((item) => item.roster >= 5 && item.submitted > 0).sort((left, right) => right.rate - left.rate || right.submitted - left.submitted).slice(0, 3),
+    topByCount: [...withRate].filter((item) => item.submitted > 0).sort((left, right) => right.submitted - left.submitted).slice(0, 3),
+    needNudge: [...withRate].filter((item) => item.roster >= 5).sort((left, right) => left.rate - right.rate || right.roster - left.roster).slice(0, 3),
+    updatedAt: new Date().toISOString()
+  };
+
+  statsCache = { value, at: Date.now() };
+  return value;
+}
+
+/** เรียกเมื่อมีการส่งข้อมูลใหม่ เพื่อให้ตัวเลขบนหน้าแรกขยับตามจริง */
+export function invalidatePublicStats() {
+  statsCache = { value: null, at: 0 };
+}
+
 /** นับตามสถานะการติดตาม สำหรับแดชบอร์ดและหน้ารายชื่อ */
 export function summariseFollowUp(records) {
   const counts = Object.fromEntries(FOLLOW_UP_KEYS.map((key) => [key, 0]));

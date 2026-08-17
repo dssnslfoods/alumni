@@ -393,3 +393,25 @@ header strong,header span { display:block; } header strong { font-size:1.03rem; 
 
 /* แถบแจ้งเตือนต้องอยู่ในกรอบเนื้อหา ไม่กินเต็มความกว้างจอ */
 .site > .alert { width:min(780px,calc(100% - 48px)); margin:0 auto 24px; }
+
+/* ---------- แถบวิ่งสถิติบนหน้าแรก ---------- */
+.ticker { position:relative; max-width:940px; margin:34px auto 0; padding:14px 0; overflow:hidden; border-top:1px solid #dfe6d8; border-bottom:1px solid #dfe6d8; background:linear-gradient(180deg,#f7faf3,#fbfcf8); }
+/* ไล่สีขอบซ้าย-ขวา ให้ข้อความค่อย ๆ จางแทนการตัดขาด */
+.ticker::before, .ticker::after { content:""; position:absolute; top:0; bottom:0; width:52px; z-index:1; pointer-events:none; }
+.ticker::before { left:0; background:linear-gradient(90deg,#f8faf4,rgba(248,250,244,0)); }
+.ticker::after { right:0; background:linear-gradient(270deg,#f8faf4,rgba(248,250,244,0)); }
+.ticker-track { display:flex; width:max-content; animation:ticker-scroll 46s linear infinite; }
+.ticker:hover .ticker-track, .ticker:focus-within .ticker-track { animation-play-state:paused; }
+.ticker-strip { display:flex; flex:0 0 auto; }
+.ticker-item { display:inline-flex; align-items:center; gap:10px; padding:0 32px; color:#5b6a58; font-size:1.02rem; white-space:nowrap; }
+.ticker-item strong { color:var(--deep); font-weight:700; font-variant-numeric:tabular-nums; }
+.ticker-item i { color:var(--gold); font-style:normal; font-size:1.05rem; }
+@keyframes ticker-scroll { from { transform:translateX(0); } to { transform:translateX(-50%); } }
+
+/* ไม่วิ่งเมื่อผู้ใช้ขอลดการเคลื่อนไหว — เลื่อนอ่านเองได้แทน */
+@media (prefers-reduced-motion:reduce) {
+  .ticker { overflow-x:auto; }
+  .ticker-track { animation:none; }
+  .ticker-strip:last-child { display:none; }
+}
+@media (max-width:540px) { .ticker { margin-top:24px; } .ticker-item { padding:0 18px; font-size:.9rem; } }

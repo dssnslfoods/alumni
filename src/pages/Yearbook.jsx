@@ -36,6 +36,7 @@ export function Yearbook() {
   const [intent, setIntent] = useState("yes");
   const [repBatch, setRepBatch] = useState("");
   const [reps, setReps] = useState(null);
+  const [stats, setStats] = useState(null);
   const [batch, setBatch] = useState("");
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState([]);
@@ -61,6 +62,7 @@ export function Yearbook() {
 
   useEffect(() => {
     api("/api/public/settings", { auth: false }).then(setSettings).catch(() => {});
+    api("/api/public/stats", { auth: false }).then(setStats).catch(() => {});
   }, []);
 
   const nameChanged = alum && `${firstName} ${lastName}`.trim() !== `${alum.currentFirstName} ${alum.currentLastName}`.trim();
@@ -310,6 +312,8 @@ export function Yearbook() {
               <X /><span>ไม่มีความประสงค์</span><small>ยืนยันตัวตนเพื่อแจ้งความประสงค์</small>
             </button>
           </div>
+
+          <StatsTicker stats={stats} />
         </section>
       )}
 
@@ -618,6 +622,64 @@ export function Yearbook() {
         </section>
       )}
     </Shell>
+  );
+}
+
+/**
+ * Live participation ticker.
+ *
+ * Shown to encourage batches to respond — seeing that รุ่น 45 is at 89% is a
+ * far stronger nudge than a generic "please submit". Only aggregate counts are
+ * shown; no names ever appear here.
+ */
+function StatsTicker({ stats }) {
+  if (!stats || !stats.submitted) return null;
+
+  const thai = (value) => Number(value || 0).toLocaleString("th-TH");
+  const items = [
+    { icon: "✦", text: <>ยืนยันลงหนังสือแล้ว <strong>{thai(stats.submitted)}</strong> คน จากทั้งหมด <strong>{thai(stats.roster)}</strong> คน (<strong>{stats.rate}%</strong>)</> }
+  ];
+
+  if (stats.topByRate?.length) {
+    items.push({
+      icon: "🏆",
+      text: <>รุ่นที่ตอบกลับมากที่สุด {stats.topByRate.map((item, index) => (
+        <span key={item.batch}>{index > 0 && " · "}<strong>รุ่น {item.batch}</strong> {item.rate}%</span>
+      ))}</>
+    });
+  }
+  if (stats.topByCount?.length) {
+    items.push({
+      icon: "✦",
+      text: <>รุ่นที่ส่งข้อมูลมากที่สุด {stats.topByCount.map((item, index) => (
+        <span key={item.batch}>{index > 0 && " · "}<strong>รุ่น {item.batch}</strong> {thai(item.submitted)} คน</span>
+      ))}</>
+    });
+  }
+  if (stats.needNudge?.length) {
+    items.push({
+      icon: "📣",
+      text: <>ชวนเพื่อนรุ่นเดียวกันมาส่งข้อมูลกันเยอะ ๆ {stats.needNudge.map((item, index) => (
+        <span key={item.batch}>{index > 0 && " · "}<strong>รุ่น {item.batch}</strong> {item.rate}%</span>
+      ))}</>
+    });
+  }
+  items.push({ icon: "✧", text: <>มีข้อมูลแล้ว <strong>{stats.batchCount}</strong> รุ่น — รุ่นของท่านส่งครบหรือยัง?</> });
+
+  // The list is rendered twice so the loop has no visible seam.
+  const strip = (keyPrefix) => items.map((item, index) => (
+    <span className="ticker-item" key={`${keyPrefix}-${index}`}>
+      <i aria-hidden="true">{item.icon}</i>{item.text}
+    </span>
+  ));
+
+  return (
+    <div className="ticker" role="status" aria-label="สถิติการส่งข้อมูล">
+      <div className="ticker-track">
+        <div className="ticker-strip">{strip("a")}</div>
+        <div className="ticker-strip" aria-hidden="true">{strip("b")}</div>
+      </div>
+    </div>
   );
 }
 

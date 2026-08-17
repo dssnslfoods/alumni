@@ -10,6 +10,8 @@ import {
   findAlumniById,
   normalizeText,
   parseBatch,
+  invalidatePublicStats,
+  publicStats,
   saveAlumni,
   searchAlumni,
   searchResult,
@@ -65,6 +67,12 @@ router.get("/settings", route(async (_req, res) => {
     bioMaxLength: settings.bioMaxLength,
     pdpaVersion: settings.pdpaVersion
   });
+}));
+
+/** Aggregate counts for the welcome-page ticker. No personal data, cached server-side. */
+router.get("/stats", route(async (_req, res) => {
+  res.set("Cache-Control", "public, max-age=120");
+  res.json(await publicStats());
 }));
 
 router.post("/search", route(async (req, res) => {
@@ -159,6 +167,7 @@ router.post("/decline", route(async (req, res) => {
 
   await saveAlumni(record.id, patch);
   await syncSubmission({ ...record, ...patch });
+  invalidatePublicStats();
   await audit(req, "public.decline", { targetType: "alumni", targetId: record.id, meta: { hadSubmitted } });
   res.json({ ok: true, hadSubmitted });
 }));
@@ -214,6 +223,7 @@ router.post("/submit", multipartBody({ maxFiles: 1 }), route(async (req, res) =>
 
   await saveAlumni(record.id, patch);
   await syncSubmission({ ...record, ...patch });
+  invalidatePublicStats();
   await audit(req, "public.submit", { targetType: "alumni", targetId: record.id, meta: { photoChoice, contactTypes: contacts.map((item) => item.type) } });
   res.json({
     ok: true,
