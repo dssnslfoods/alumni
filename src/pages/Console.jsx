@@ -1015,7 +1015,7 @@ function UserManager({ user }) {
       phone: item.phone || "",
       role: item.role,
       batchScope: (item.batchScope || []).join(", "),
-      alumniId: item.alumniId || ""
+      alumniId: (item.alumniId || "").replace(/^s-/, "")
     });
   }
 
@@ -1032,7 +1032,7 @@ function UserManager({ user }) {
           phone: editing.phone,
           role: editing.role,
           batchScope: editing.role === "staff" ? editing.batchScope.split(/[,\s]+/).filter(Boolean) : null,
-          alumniId: ["staff", "alumni"].includes(editing.role) ? editing.alumniId : ""
+          alumniId: ["staff", "alumni"].includes(editing.role) && editing.alumniId ? `s-${editing.alumniId.replace(/^s-/, "")}` : ""
         }
       });
       setEditing(null);
@@ -1057,7 +1057,7 @@ function UserManager({ user }) {
         phone: form.phone,
         role: form.role,
         batchScope: form.role === "staff" ? form.batchScope.split(/[,\s]+/).filter(Boolean) : null,
-        alumniId: ["staff", "alumni"].includes(form.role) ? form.alumniId : null
+        alumniId: ["staff", "alumni"].includes(form.role) && form.alumniId ? `s-${form.alumniId.replace(/^s-/, "")}` : null
       };
       if (form.password) payload.password = form.password;
       const data = await api("/api/admin/users", { method: "POST", body: payload });
@@ -1123,10 +1123,10 @@ function UserManager({ user }) {
           )}
           {["staff", "alumni"].includes(form.role) && (
             <Field
-              label="รหัสระเบียนนิสิตเก่า"
+              label="รหัสนิสิต"
               value={form.alumniId}
               setValue={(value) => setForm({ ...form, alumniId: value })}
-              placeholder="เช่น s-2834000001"
+              placeholder="เช่น 2834000001"
               hint={form.role === "staff" ? "(ไม่บังคับ — ผูกเพื่อให้แสดงชื่อจริงในทะเบียน)" : "(บังคับสำหรับบัญชีนิสิตเก่า)"}
             />
           )}
@@ -1165,10 +1165,10 @@ function UserManager({ user }) {
             )}
             {["staff", "alumni"].includes(editing.role) && (
               <Field
-                label="รหัสระเบียนนิสิตเก่า"
+                label="รหัสนิสิต"
                 value={editing.alumniId}
                 setValue={(value) => setEditing({ ...editing, alumniId: value })}
-                placeholder="เช่น s-2834000001"
+                placeholder="เช่น 2834000001"
                 hint="(เว้นว่างเพื่อยกเลิกการผูก)"
               />
             )}
