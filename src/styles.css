@@ -77,6 +77,10 @@ header strong,header span { display:block; } header strong { font-size:1.03rem; 
 .form-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; margin:14px 0 18px; }
 .user-form { padding:20px; margin-bottom:22px; border:1px solid #e0e6da; background:#fbfcf8; }
 .user-form h4 { margin:0; }
+/* The edit form appears below the table, so it needs to announce itself. */
+.user-form.editing { border-color:#8a9a78; background:#f4f7ee; }
+.form-note { margin:6px 0 0; font-size:.82rem; color:#5f6b55; line-height:1.55; }
+.link-broken { color:#a8422f; }
 .credential-box { display:grid; gap:8px; margin:16px 0; padding:18px; border-left:4px solid var(--gold); background:#fdf6e4; }
 .credential-box code { padding:10px 14px; background:#fff; border:1px dashed #d9c68d; font-size:1.15rem; letter-spacing:1px; user-select:all; }
 .credential-box small { color:var(--muted); line-height:1.65; }

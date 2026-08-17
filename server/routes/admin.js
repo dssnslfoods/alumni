@@ -82,7 +82,23 @@ router.get("/summary", requirePermission("alumni.read"), route(async (req, res) 
 
 router.get("/users", requirePermission("users.manage"), route(async (_req, res) => {
   const users = await listUsers({ limit: 500 });
-  res.json({ users: users.map(publicUser), roles: Object.entries(ROLES).map(([name, meta]) => ({ name, ...meta })) });
+
+  // Resolve the linked register entry so the list shows a person, not "s-2676061".
+  // Whoever is deciding to replace a batch representative needs to see the name.
+  const linked = await Promise.all(users.map((item) => (item.alumniId ? findAlumniById(item.alumniId) : null)));
+  const shaped = users.map((item, index) => {
+    const record = linked[index];
+    return {
+      ...publicUser(item),
+      alumniName: record ? `${record.currentFirstName || record.legalFirstName} ${record.currentLastName || record.legalLastName}`.trim() : "",
+      alumniBatch: record ? record.batch : null,
+      // A link pointing at a record that no longer exists is worth flagging
+      // rather than silently showing a blank name.
+      alumniMissing: Boolean(item.alumniId && !record)
+    };
+  });
+
+  res.json({ users: shaped, roles: Object.entries(ROLES).map(([name, meta]) => ({ name, ...meta })) });
 }));
 
 router.post("/users", requirePermission("users.manage"), route(async (req, res) => {

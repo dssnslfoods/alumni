@@ -10,7 +10,9 @@ import {
   LayoutDashboard,
   LogOut,
   Palette,
+  Pencil,
   RefreshCw,
+  Save,
   Settings,
   Trash2,
   Upload,
@@ -998,8 +1000,49 @@ function UserManager({ user }) {
   const [message, setMessage] = useState("");
   const [credential, setCredential] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(null);
 
   const assignableRoles = Object.keys(ROLE_LABELS).filter((role) => role !== "owner" && (user.role === "owner" || role !== "admin"));
+
+  function beginEdit(item) {
+    setMessage("");
+    setCredential(null);
+    setEditing({
+      uid: item.uid,
+      username: item.username,
+      displayName: item.displayName || "",
+      email: item.email || "",
+      phone: item.phone || "",
+      role: item.role,
+      batchScope: (item.batchScope || []).join(", "),
+      alumniId: item.alumniId || ""
+    });
+  }
+
+  async function saveEdit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      await api(`/api/admin/users/${editing.uid}`, {
+        method: "PATCH",
+        body: {
+          displayName: editing.displayName,
+          email: editing.email,
+          phone: editing.phone,
+          role: editing.role,
+          batchScope: editing.role === "staff" ? editing.batchScope.split(/[,\s]+/).filter(Boolean) : null,
+          alumniId: ["staff", "alumni"].includes(editing.role) ? editing.alumniId : ""
+        }
+      });
+      setEditing(null);
+      reload();
+    } catch (saveError) {
+      setMessage(saveError.message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function create(event) {
     event.preventDefault();
@@ -1092,6 +1135,54 @@ function UserManager({ user }) {
         <button className="next compact-btn" disabled={busy || !form.username}><UserPlus /> สร้างบัญชี</button>
       </form>
 
+      {editing && (
+        <form className="user-form editing" onSubmit={saveEdit}>
+          <h4>แก้ไขบัญชี {editing.username}</h4>
+          <p className="form-note">
+            ใช้เปลี่ยนตัวแทนรุ่นได้โดยไม่ต้องสร้างบัญชีใหม่ — ย้ายรุ่นที่ดูแลไปให้บัญชีอื่น
+            หรือผูกบัญชีเดิมกับนิสิตเก่าคนใหม่พร้อมเปลี่ยนเบอร์ติดต่อ
+          </p>
+          <div className="form-grid">
+            <Field label="ชื่อที่แสดง" value={editing.displayName} setValue={(value) => setEditing({ ...editing, displayName: value })} />
+            <Field label="อีเมล (ไม่บังคับ)" value={editing.email} setValue={(value) => setEditing({ ...editing, email: value })} type="email" />
+            <label className="field"><span>บทบาท</span>
+              <select value={editing.role} onChange={(event) => setEditing({ ...editing, role: event.target.value })}>
+                {assignableRoles.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}
+              </select>
+            </label>
+            {editing.role === "staff" && (
+              <>
+                <Field label="รุ่นที่ดูแล" value={editing.batchScope} setValue={(value) => setEditing({ ...editing, batchScope: value })} placeholder="เช่น 45, 46" hint="(คั่นด้วยเครื่องหมายจุลภาค)" />
+                <Field
+                  label="เบอร์ติดต่อ"
+                  value={editing.phone}
+                  setValue={(value) => setEditing({ ...editing, phone: value })}
+                  placeholder="081-234-5678"
+                  hint="(แสดงให้นิสิตเก่าเห็นเมื่อปิดรับข้อมูล)"
+                  inputMode="tel"
+                />
+              </>
+            )}
+            {["staff", "alumni"].includes(editing.role) && (
+              <Field
+                label="รหัสระเบียนนิสิตเก่า"
+                value={editing.alumniId}
+                setValue={(value) => setEditing({ ...editing, alumniId: value })}
+                placeholder="เช่น s-2676061"
+                hint="(เว้นว่างเพื่อยกเลิกการผูก)"
+              />
+            )}
+          </div>
+          <div className="row-actions">
+            <button className="next compact-btn" disabled={busy}><Save /> บันทึกการแก้ไข</button>
+            <button type="button" className="ghost" onClick={() => setEditing(null)}>ยกเลิก</button>
+          </div>
+          <p className="form-note">
+            การเปลี่ยนบทบาทจะบังคับให้บัญชีนั้นเข้าสู่ระบบใหม่ทันที เพื่อไม่ให้สิทธิ์เดิมค้างอยู่
+          </p>
+        </form>
+      )}
+
       <Alert>{message || error}</Alert>
       {credential && (
         <div className="credential-box">
@@ -1103,20 +1194,25 @@ function UserManager({ user }) {
 
       {loading ? <p className="console-loading">กำลังโหลด…</p> : (
         <table className="data-table">
-          <thead><tr><th>ชื่อผู้ใช้</th><th>ชื่อที่แสดง</th><th>บทบาท</th><th>ขอบเขต</th><th>เบอร์ติดต่อ</th><th>สถานะ</th><th>เข้าใช้ล่าสุด</th><th>จัดการ</th></tr></thead>
+          <thead><tr><th>ชื่อผู้ใช้</th><th>ชื่อที่แสดง</th><th>บทบาท</th><th>รุ่นที่ดูแล</th><th>ผูกกับนิสิตเก่า</th><th>เบอร์ติดต่อ</th><th>สถานะ</th><th>เข้าใช้ล่าสุด</th><th>จัดการ</th></tr></thead>
           <tbody>
             {(data?.users || []).map((item) => (
               <tr key={item.uid}>
                 <td>{item.username}{item.mustChangePassword && <small className="pending-flag"> ยังไม่ตั้งรหัสผ่าน</small>}</td>
                 <td>{item.displayName}</td>
                 <td><span className={`role-chip role-${item.role}`}>{item.roleLabel}</span></td>
-                <td>{item.batchScope?.join(", ") || "ทั้งระบบ"}{item.alumniId && <><br /><small>{item.alumniId}</small></>}</td>
+                <td>{item.batchScope?.join(", ") || "ทั้งระบบ"}</td>
+                <td>
+                  {item.alumniName || (item.alumniId ? <span className="link-broken">ไม่พบระเบียน</span> : "—")}
+                  {item.alumniId && <><br /><small>{item.alumniId}</small></>}
+                </td>
                 <td>{item.phone || "—"}</td>
                 <td>{item.status === "active" ? "ใช้งาน" : "ระงับ"}</td>
                 <td>{item.lastLoginAt ? formatTime(item.lastLoginAt) : "—"}</td>
                 <td className="row-actions">
                   {item.uid !== user.uid && item.role !== "owner" && (
                     <>
+                      <button onClick={() => beginEdit(item)}><Pencil /> แก้ไข</button>
                       <button onClick={() => act(item, "reset")}><KeyRound /> รีเซ็ตรหัส</button>
                       <button onClick={() => act(item, "toggle")}>{item.status === "active" ? "ระงับ" : "เปิดใช้"}</button>
                       <button className="danger" onClick={() => act(item, "delete")}><Trash2 /> ลบ</button>
