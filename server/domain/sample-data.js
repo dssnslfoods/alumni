@@ -122,7 +122,7 @@ export function generateSampleRows(total = 10000, { seed = 25690816, maxBatch = 
         "นามสกุล": pick(SURNAMES),
         "รุ่น": batch,
         "ปีที่เข้าศึกษา": 2481 + batch,
-        "รหัสนิสิต": formatStudentId(batch, sequence),
+        "เลขประจำตัวนิสิต": formatStudentId(batch, sequence),
         "ชื่อปัจจุบัน": changedFirstName ? (isFemale ? pick(FEMALE_NAMES) : pick(MALE_NAMES)) : "",
         "นามสกุลปัจจุบัน": changedSurname ? pick(SURNAMES) : "",
         "อีเมลสำหรับติดต่อ": chance(0.55) ? `${pick(EMAIL_STEMS)}${Math.floor(random() * 900 + 100)}@${pick(EMAIL_DOMAINS)}` : "",
@@ -138,7 +138,7 @@ export function summariseSampleRows(rows) {
   return {
     total: rows.length,
     batches: new Set(rows.map((row) => row["รุ่น"])).size,
-    uniqueStudentIds: new Set(rows.map((row) => row["รหัสนิสิต"])).size,
+    uniqueStudentIds: new Set(rows.map((row) => row["เลขประจำตัวนิสิต"])).size,
     withNameChange: rows.filter((row) => row["ชื่อปัจจุบัน"] || row["นามสกุลปัจจุบัน"]).length,
     withEmail: rows.filter((row) => row["อีเมลสำหรับติดต่อ"]).length,
     withPhone: rows.filter((row) => row["เบอร์โทรสำหรับติดต่อ"]).length
