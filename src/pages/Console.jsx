@@ -571,10 +571,10 @@ function AlumniTable({ user }) {
 /* ----------------------------- import / export ---------------------------- */
 
 function ImportExport({ canReset }) {
-  const [file, setFile] = useState(null);
+  const [files, setFiles] = useState([]);
   const [dragOver, setDragOver] = useState(false);
-  const [preview, setPreview] = useState(null);
-  const [result, setResult] = useState(null);
+  const [previews, setPreviews] = useState([]);
+  const [results, setResults] = useState([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [exportBatch, setExportBatch] = useState("");
@@ -605,22 +605,44 @@ function ImportExport({ canReset }) {
     }
   }
 
+  function addFiles(incoming) {
+    const list = Array.from(incoming).filter(Boolean);
+    if (!list.length) return;
+    setFiles((prev) => [...prev, ...list]);
+    setPreviews([]);
+    setResults([]);
+    setMessage("");
+    setProgress(null);
+  }
+
+  function removeFile(index) {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+    setPreviews([]);
+    setResults([]);
+    setMessage("");
+  }
+
   /** Parse and validate only — nothing is saved yet. */
   async function check() {
-    if (!file) return setMessage("กรุณาเลือกไฟล์ก่อน");
+    if (!files.length) return setMessage("กรุณาเลือกไฟล์ก่อน");
     setBusy(true);
     setMessage("");
-    setResult(null);
-    setProgress({ phase: "reading", percent: 0, done: 0, total: 0 });
+    setResults([]);
+    setPreviews([]);
+    const jobs = [];
     try {
-      const body = new FormData();
-      body.append("file", file);
-      const data = await api("/api/admin/import/prepare", { method: "POST", body });
-      setPreview(data.job);
+      for (let i = 0; i < files.length; i++) {
+        setProgress({ phase: "reading", percent: Math.round((i / files.length) * 100), done: i, total: files.length, label: files[i].name });
+        const body = new FormData();
+        body.append("file", files[i]);
+        const data = await api("/api/admin/import/prepare", { method: "POST", body });
+        jobs.push(data.job);
+      }
+      setPreviews(jobs);
       setProgress(null);
     } catch (error) {
       setProgress(null);
-      setMessage(describeError(error));
+      setMessage(`${files[jobs.length]?.name}: ${describeError(error)}`);
     } finally {
       setBusy(false);
     }
@@ -631,57 +653,61 @@ function ImportExport({ canReset }) {
    * and acknowledged by the server before the next one is sent.
    */
   async function runImport() {
-    const job = preview;
-    if (!job) return setMessage("กรุณากด \"ตรวจสอบไฟล์ก่อน\" ก่อนนำเข้าจริง");
-    if (job.updated > 0 && !confirm(`พบข้อมูลซ้ำ ${job.updated} รายการ — ต้องการนำเข้าและอัปเดตข้อมูลที่ซ้ำหรือไม่?`)) return;
+    if (!previews.length) return setMessage("กรุณากด \"ตรวจสอบไฟล์ก่อน\" ก่อนนำเข้าจริง");
+    const totalUpdated = previews.reduce((sum, j) => sum + (j.updated || 0), 0);
+    if (totalUpdated > 0 && !confirm(`พบข้อมูลซ้ำ ${totalUpdated} รายการ — ต้องการนำเข้าและอัปเดตข้อมูลที่ซ้ำหรือไม่?`)) return;
 
-    const startedAt = new Date().toISOString();
-    const entries = job.entries || [];
+    const totalEntries = previews.reduce((sum, j) => sum + (j.entries?.length || 0), 0);
     setBusy(true);
     setMessage("");
-    setResult(null);
-    setProgress({ phase: "writing", percent: 0, done: 0, total: entries.length });
+    setResults([]);
 
-    let inserted = 0;
-    let updated = 0;
+    let globalDone = 0;
+    const saved = [];
     try {
-      for (let start = 0; start < entries.length; start += CHUNK_SIZE) {
-        const slice = entries.slice(start, start + CHUNK_SIZE);
-        const written = await api("/api/admin/import/chunk", {
-          method: "POST",
-          body: { jobId: job.jobId, filename: job.filename, entries: slice }
-        });
-        inserted += written.inserted;
-        updated += written.updated;
-        const done = Math.min(start + slice.length, entries.length);
-        setProgress({ phase: "writing", percent: Math.round((done / entries.length) * 100), done, total: entries.length });
-      }
+      for (const job of previews) {
+        const startedAt = new Date().toISOString();
+        const entries = job.entries || [];
+        let inserted = 0;
+        let updated = 0;
 
-      setProgress({ phase: "finishing", percent: 100, done: entries.length, total: entries.length });
-      const { job: saved } = await api("/api/admin/import/commit", {
-        method: "POST",
-        body: {
-          jobId: job.jobId,
-          filename: job.filename,
-          headers: job.headers,
-          startedAt,
-          status: "completed",
-          totalRows: job.totalRows,
-          validRows: job.validRows,
-          inserted,
-          updated,
-          duplicateRows: job.duplicateRows,
-          skipped: job.skipped,
-          errors: job.errors
+        for (let start = 0; start < entries.length; start += CHUNK_SIZE) {
+          const slice = entries.slice(start, start + CHUNK_SIZE);
+          const written = await api("/api/admin/import/chunk", {
+            method: "POST",
+            body: { jobId: job.jobId, filename: job.filename, entries: slice }
+          });
+          inserted += written.inserted;
+          updated += written.updated;
+          globalDone += slice.length;
+          setProgress({ phase: "writing", percent: Math.round((globalDone / totalEntries) * 100), done: globalDone, total: totalEntries, label: job.filename });
         }
-      });
-      setResult(saved);
-      setPreview(null);
-      setProgress({ phase: "done", percent: 100, done: entries.length, total: entries.length });
+
+        const { job: committed } = await api("/api/admin/import/commit", {
+          method: "POST",
+          body: {
+            jobId: job.jobId,
+            filename: job.filename,
+            headers: job.headers,
+            startedAt,
+            status: "completed",
+            totalRows: job.totalRows,
+            validRows: job.validRows,
+            inserted,
+            updated,
+            duplicateRows: job.duplicateRows,
+            skipped: job.skipped,
+            errors: job.errors
+          }
+        });
+        saved.push(committed);
+      }
+      setResults(saved);
+      setPreviews([]);
+      setProgress({ phase: "done", percent: 100, done: totalEntries, total: totalEntries });
     } catch (error) {
-      // Report how far it actually got — the slices already written are saved.
       setProgress((current) => (current ? { ...current, phase: "failed" } : null));
-      setMessage(`${describeError(error)} — บันทึกสำเร็จไปแล้ว ${(inserted + updated).toLocaleString("th-TH")} รายการ สามารถกด "นำเข้าจริง" ซ้ำเพื่อทำต่อได้`);
+      setMessage(`${describeError(error)} — บันทึกสำเร็จไปแล้ว ${globalDone.toLocaleString("th-TH")} รายการ สามารถกด "นำเข้าจริง" ซ้ำเพื่อทำต่อได้`);
     } finally {
       setBusy(false);
     }
@@ -729,31 +755,46 @@ function ImportExport({ canReset }) {
         onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
-          const dropped = e.dataTransfer.files?.[0];
-          if (dropped) { setFile(dropped); setPreview(null); setResult(null); setMessage(""); setProgress(null); }
+          addFiles(e.dataTransfer.files);
         }}
       >
         <Upload />
-        <strong>{file?.name || "ลากไฟล์มาวาง หรือกดเพื่อเลือกไฟล์"}</strong>
-        <small>รองรับ .xls, .xlsx และ .csv — ระบบจะตรวจสอบข้อมูลให้ก่อน แล้วจึงยืนยันบันทึกจริง</small>
-        <input type="file" accept=".xls,.xlsx,.csv" onChange={(event) => { setFile(event.target.files?.[0] || null); setPreview(null); setResult(null); setMessage(""); setProgress(null); }} />
+        <strong>{files.length ? `เลือกแล้ว ${files.length} ไฟล์` : "ลากไฟล์มาวาง หรือกดเพื่อเลือกไฟล์"}</strong>
+        <small>รองรับ .xls, .xlsx และ .csv หลายไฟล์พร้อมกัน — ระบบจะตรวจสอบข้อมูลให้ก่อน แล้วจึงยืนยันบันทึกจริง</small>
+        <input type="file" accept=".xls,.xlsx,.csv" multiple onChange={(event) => { addFiles(event.target.files); event.target.value = ""; }} />
       </label>
 
+      {files.length > 0 && (
+        <div className="file-list">
+          {files.map((f, i) => (
+            <div key={`${f.name}-${i}`} className="file-list-item">
+              <FileSpreadsheet />
+              <span>{f.name}</span>
+              <button className="ghost" onClick={() => removeFile(i)} disabled={busy}><Trash2 /></button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="button-row">
-        <button className="ghost" disabled={busy || !file} onClick={check}>1. ตรวจสอบไฟล์ก่อน</button>
-        <button className="next compact-btn" disabled={busy || !preview} onClick={runImport}>2. นำเข้าจริง</button>
+        <button className="ghost" disabled={busy || !files.length} onClick={check}>1. ตรวจสอบไฟล์ก่อน</button>
+        <button className="next compact-btn" disabled={busy || !previews.length} onClick={runImport}>2. นำเข้าจริง</button>
       </div>
 
       <ProgressBar progress={progress} />
       <Alert>{message}</Alert>
-      {preview && <ImportReport job={preview} title={"ผลการตรวจสอบ — ยังไม่บันทึก กด \"นำเข้าจริง\" เพื่อบันทึก"} />}
-      {preview && preview.updated > 0 && (
-        <div className="import-warning">
-          <strong>พบข้อมูลซ้ำ {preview.updated.toLocaleString("th-TH")} รายการ</strong>
-          <span>รายชื่อเหล่านี้มีในระบบแล้ว — หากกด "นำเข้าจริง" ระบบจะอัปเดตข้อมูลพื้นฐาน (ชื่อ, รุ่น, รหัสนิสิต) แต่ข้อมูลที่นิสิตเก่ากรอกไว้แล้วจะไม่ถูกทับ</span>
+      {previews.map((p, i) => (
+        <div key={p.jobId || i}>
+          <ImportReport job={p} title={`ผลการตรวจสอบ: ${p.filename} — ยังไม่บันทึก กด "นำเข้าจริง" เพื่อบันทึก`} />
+          {p.updated > 0 && (
+            <div className="import-warning">
+              <strong>พบข้อมูลซ้ำ {p.updated.toLocaleString("th-TH")} รายการ</strong>
+              <span>รายชื่อเหล่านี้มีในระบบแล้ว — หากกด "นำเข้าจริง" ระบบจะอัปเดตข้อมูลพื้นฐาน (ชื่อ, รุ่น, รหัสนิสิต) แต่ข้อมูลที่นิสิตเก่ากรอกไว้แล้วจะไม่ถูกทับ</span>
+            </div>
+          )}
         </div>
-      )}
-      {result && <ImportReport job={result} title="นำเข้าเรียบร้อยแล้ว" tone="ok" />}
+      ))}
+      {results.map((r, i) => <ImportReport key={r.jobId || i} job={r} title={`นำเข้าเรียบร้อย: ${r.filename}`} tone="ok" />)}
 
       <h3 className="section-gap">รหัสยืนยันตัวตน</h3>
       <p className="panel-note">
