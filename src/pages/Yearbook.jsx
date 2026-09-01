@@ -154,7 +154,7 @@ export function Yearbook() {
       setWasFaculty(!!data.alum.wasFaculty);
       setFacultyTitle(data.alum.facultyTitle || "");
       if (data.alum.facultyTitle && !["ศ.", "รศ.", "ผศ.", "อ.", "ศ.ดร.", "รศ.ดร.", "ผศ.ดร.", "อ.ดร."].includes(data.alum.facultyTitle)) setFacultyTitleOther(true);
-      setStudentId(data.alum.studentId || "");
+      setStudentId(data.alum.reportedStudentId || data.alum.studentId || "");
       setEntryYear(data.alum.entryYear != null ? String(data.alum.entryYear) : "");
       setOutstandingAlumni(!!data.alum.outstandingAlumni);
       setOutstandingYear(data.alum.outstandingYear ? String(data.alum.outstandingYear) : "");
@@ -224,7 +224,7 @@ export function Yearbook() {
     body.append("currentLastName", lastName);
     body.append("legalFirstName", legalFirst);
     body.append("legalLastName", legalLast);
-    body.append("studentId", studentId);
+    body.append("reportedStudentId", studentId);
     body.append("entryYear", entryYear);
     body.append("wasFaculty", wasFaculty ? "yes" : "no");
     if (wasFaculty && facultyTitle) body.append("facultyTitle", facultyTitle);
@@ -254,7 +254,7 @@ export function Yearbook() {
     body.append("currentLastName", lastName);
     body.append("legalFirstName", legalFirst);
     body.append("legalLastName", legalLast);
-    body.append("studentId", studentId);
+    body.append("reportedStudentId", studentId);
     body.append("entryYear", entryYear);
     body.append("outstandingAlumni", outstandingAlumni ? "yes" : "no");
     if (outstandingAlumni) body.append("outstandingYear", outstandingYear || "");

@@ -629,7 +629,7 @@ function EditAlumniModal({ record, onClose, onSaved }) {
     legalLastName: record.legalLastName || "",
     currentFirstName: record.currentFirstName || "",
     currentLastName: record.currentLastName || "",
-    studentId: record.studentId || "",
+    reportedStudentId: record.reportedStudentId || record.studentId || "",
     entryYear: record.entryYear ? String(record.entryYear) : "",
     wasFaculty: !!record.wasFaculty,
     facultyTitle: record.facultyTitle || "",
@@ -656,7 +656,7 @@ function EditAlumniModal({ record, onClose, onSaved }) {
       body.append("legalLastName", draft.legalLastName);
       body.append("currentFirstName", draft.currentFirstName);
       body.append("currentLastName", draft.currentLastName);
-      body.append("studentId", draft.studentId);
+      body.append("reportedStudentId", draft.reportedStudentId);
       body.append("entryYear", draft.entryYear);
       body.append("wasFaculty", String(draft.wasFaculty));
       body.append("facultyTitle", draft.facultyTitle);
@@ -689,7 +689,7 @@ function EditAlumniModal({ record, onClose, onSaved }) {
             <Field label="นามสกุลสมัยเรียน" value={draft.legalLastName} setValue={set("legalLastName")} />
             <Field label="ชื่อในหนังสือ" value={draft.currentFirstName} setValue={set("currentFirstName")} />
             <Field label="นามสกุลในหนังสือ" value={draft.currentLastName} setValue={set("currentLastName")} />
-            <Field label="รหัสประจำตัวนิสิต" value={draft.studentId} setValue={set("studentId")} placeholder="10 หลัก" inputMode="numeric" />
+            <Field label="รหัสประจำตัวนิสิต" value={draft.reportedStudentId} setValue={set("reportedStudentId")} placeholder="10 หลัก" inputMode="numeric" />
             <Field label="ปีที่เข้าศึกษา (พ.ศ.)" value={draft.entryYear} setValue={set("entryYear")} placeholder="เช่น 2526" inputMode="numeric" />
           </div>
 

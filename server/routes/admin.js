@@ -264,7 +264,7 @@ router.patch("/alumni/:id", requirePermission("alumni.write"), multipartBody({ m
     patch.currentLastName = lastName;
   }
 
-  if (req.body?.studentId !== undefined) patch.studentId = onlyDigits(req.body.studentId);
+  if (req.body?.reportedStudentId !== undefined) patch.reportedStudentId = onlyDigits(req.body.reportedStudentId);
   if (req.body?.entryYear !== undefined) patch.entryYear = parseInt(req.body.entryYear, 10) || "";
   if (req.body?.wasFaculty !== undefined) patch.wasFaculty = String(req.body.wasFaculty) === "true";
   if (req.body?.facultyTitle !== undefined) patch.facultyTitle = normalizeText(req.body.facultyTitle);

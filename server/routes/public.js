@@ -185,7 +185,7 @@ router.post("/draft", multipartBody({ maxFiles: 1 }), route(async (req, res) => 
   const record = await recordFromSubmitToken(req);
 
   const wasFaculty = String(req.body?.wasFaculty) === "yes";
-  const studentIdRaw = normalizeText(req.body?.studentId);
+  const studentIdRaw = normalizeText(req.body?.reportedStudentId);
   const entryYearRaw = normalizeText(req.body?.entryYear);
   const entryYear = parseInt(entryYearRaw, 10) || "";
   const outstandingAlumni = String(req.body?.outstandingAlumni) === "yes";
@@ -199,7 +199,7 @@ router.post("/draft", multipartBody({ maxFiles: 1 }), route(async (req, res) => 
   const patch = {
     wasFaculty,
     facultyTitle,
-    studentId: studentIdRaw || "",
+    reportedStudentId: studentIdRaw || "",
     entryYear,
     outstandingAlumni,
     outstandingYear,
@@ -268,7 +268,7 @@ router.post("/submit", multipartBody({ maxFiles: 1 }), route(async (req, res) =>
   const bio = normalizeText(req.body?.bio);
   const wasFaculty = String(req.body?.wasFaculty) === "yes";
   const facultyTitle = wasFaculty ? normalizeText(req.body?.facultyTitle) : "";
-  const studentIdRaw = normalizeText(req.body?.studentId);
+  const studentIdRaw = normalizeText(req.body?.reportedStudentId);
   const entryYearRaw = normalizeText(req.body?.entryYear);
   const entryYear = parseInt(entryYearRaw, 10) || "";
   const outstandingAlumni = String(req.body?.outstandingAlumni) === "yes";
@@ -314,7 +314,7 @@ router.post("/submit", multipartBody({ maxFiles: 1 }), route(async (req, res) =>
     bio,
     wasFaculty,
     facultyTitle,
-    studentId: studentIdRaw || "",
+    reportedStudentId: studentIdRaw || "",
     entryYear,
     outstandingAlumni,
     outstandingYear,
