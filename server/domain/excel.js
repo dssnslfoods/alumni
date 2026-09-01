@@ -424,18 +424,11 @@ export async function buildExportWorkbook(records, { includeOutreach = false } =
  * `required` drives the header colour and the instruction sheet.
  */
 const TEMPLATE_COLUMNS = [
-  { header: "เลขประจำตัวนิสิต", width: 18, required: false, text: true, purpose: "10 หลัก 2 หลักแรกคือปีที่เข้าศึกษา เช่น 6330001233 = เข้าปี 2563 — ถ้าไม่มีจะเว้นว่างไว้", example: "6330001233" },
-  { header: "คำนำหน้า", width: 12, required: false, text: false, purpose: "คำนำหน้าชื่อสมัยเรียน เช่น นาย นางสาว", example: "นางสาว" },
-  { header: "ชื่อ", width: 20, required: true, text: false, purpose: "ชื่อจริงสมัยเรียน ใช้ให้นิสิตเก่าค้นหาตัวเอง", example: "กนกรักษ์" },
-  { header: "นามสกุล", width: 22, required: true, text: false, purpose: "นามสกุลสมัยเรียน ใช้ให้นิสิตเก่าค้นหาตัวเอง", example: "วัฒนศีลวัต" },
-  { header: "รุ่น", width: 8, required: false, text: false, purpose: `ตัวเลข 1-${effectiveMaxBatch()} ถ้าไม่มีคอลัมน์นี้ ระบบใช้จากชื่อไฟล์ (เช่น 82-2563.xlsx = รุ่น 82)`, example: 82 },
-  { header: "ปีที่เข้าศึกษา", width: 16, required: false, text: false, purpose: "พ.ศ. ที่เข้าศึกษา ระบบอ่านจากชื่อไฟล์ (เช่น 19-2500.xlsx = พ.ศ. 2500) หรือคำนวณจากรหัสนิสิต/รุ่น", example: 2563 },
-  { header: "รหัสยืนยันตัวตน", width: 16, required: false, text: true, purpose: "ระบบสร้างอัตโนมัติเมื่อนำเข้า รูปแบบ: ปีเข้า+ลำดับ 3 หลัก เช่น 2563001 ดูได้ในไฟล์ส่งออก", example: "2563001" },
-  { header: "ชื่อปัจจุบัน", width: 20, required: false, text: false, purpose: "ถ้าสมาคมทราบว่าเปลี่ยนชื่อแล้ว ระบบจะเติมให้ล่วงหน้า (เจ้าตัวแก้ได้)", example: "" },
-  { header: "นามสกุลปัจจุบัน", width: 22, required: false, text: false, purpose: "เช่นเดียวกับชื่อปัจจุบัน — จะไม่ทับข้อมูลที่เจ้าตัวกรอกเองแล้ว", example: "" },
-  { header: "อีเมลสำหรับติดต่อ", width: 26, required: false, text: false, purpose: "สำหรับผู้ดูแลใช้ติดตามงานเท่านั้น ไม่ลงหนังสือ", example: "" },
-  { header: "เบอร์โทรสำหรับติดต่อ", width: 20, required: false, text: true, purpose: "สำหรับผู้ดูแลใช้ติดตาม ไม่ลงหนังสือ", example: "" },
-  { header: "หมายเหตุ", width: 30, required: false, text: false, purpose: "บันทึกภายใน เช่น ติดต่อไม่ได้ / ย้ายต่างประเทศ", example: "" }
+  { header: "no.", width: 8, required: false, text: false, purpose: "ลำดับที่ ไม่จำเป็นต้องกรอก ระบบไม่ใช้ในการนำเข้า", example: 1 },
+  { header: "เลขประจำตัวนิสิต", width: 18, required: false, text: true, purpose: "รหัสนิสิต — ถ้าไม่มีจะเว้นว่างไว้", example: "3575474" },
+  { header: "คำนำหน้า", width: 12, required: false, text: false, purpose: "คำนำหน้าชื่อสมัยเรียน เช่น นาย นางสาว", example: "นาย" },
+  { header: "ชื่อ", width: 20, required: true, text: false, purpose: "ชื่อจริงสมัยเรียน ใช้ให้นิสิตเก่าค้นหาตัวเอง", example: "กฤษณ์" },
+  { header: "สกุล", width: 22, required: true, text: false, purpose: "นามสกุลสมัยเรียน ใช้ให้นิสิตเก่าค้นหาตัวเอง", example: "ศักดิ์ดากรกุล" },
 ];
 
 const HEADER_REQUIRED = "FFE8D7A8";
@@ -481,39 +474,6 @@ export async function buildImportTemplate({ rows = [] } = {}) {
   // (D2:D12000 alongside D10:D12000), which is invalid in the file format:
   // Excel then reports "we found a problem with some content", repairs the
   // workbook and silently drops cell data.
-  const columnLetter = (header) => sheet.getColumn(TEMPLATE_COLUMNS.findIndex((column) => column.header === header) + 1).letter;
-  const lastRow = Math.max(12000, rows.length + 1);
-
-  sheet.dataValidations.add(`${columnLetter("รุ่น")}2:${columnLetter("รุ่น")}${lastRow}`, {
-    type: "whole",
-    operator: "between",
-    formulae: [1, effectiveMaxBatch()],
-    allowBlank: true,
-    showErrorMessage: true,
-    errorTitle: "รุ่นไม่ถูกต้อง",
-    error: `กรุณากรอกรุ่นเป็นตัวเลข 1 ถึง ${effectiveMaxBatch()}`
-  });
-
-  sheet.dataValidations.add(`${columnLetter("ปีที่เข้าศึกษา")}2:${columnLetter("ปีที่เข้าศึกษา")}${lastRow}`, {
-    type: "whole",
-    operator: "between",
-    formulae: [2482, 2481 + effectiveMaxBatch()],
-    allowBlank: true,
-    showErrorMessage: true,
-    errorTitle: "ปีที่เข้าศึกษาไม่ถูกต้อง",
-    error: `พ.ศ. ที่เข้าศึกษา เช่น 2563 (ระบบคำนวณอัตโนมัติจากรุ่น)`
-  });
-
-  const sidLetter = columnLetter("เลขประจำตัวนิสิต");
-  sheet.dataValidations.add(`${sidLetter}2:${sidLetter}${lastRow}`, {
-    type: "textLength",
-    operator: "equal",
-    formulae: [10],
-    allowBlank: true,
-    showErrorMessage: true,
-    errorTitle: "เลขประจำตัวนิสิตไม่ถูกต้อง",
-    error: "ต้องเป็นตัวเลข 10 หลัก เช่น 6330001233 (2 หลักแรก = ปีที่เข้าศึกษา)"
-  });
   sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: TEMPLATE_COLUMNS.length } };
 
   buildInstructionSheet(workbook);
@@ -531,10 +491,10 @@ function buildInstructionSheet(workbook) {
 
   [
     "1. กรอกข้อมูลในชีต \"รายชื่อนิสิตเก่า\" เท่านั้น หนึ่งคนต่อหนึ่งแถว ห้ามลบหรือแก้ไขแถวหัวตาราง",
-    "2. คอลัมน์ที่จำเป็นคือ ชื่อ และ นามสกุล เท่านั้น — รุ่นระบุจากชื่อไฟล์ได้ (เช่น 82-2563.xlsx = รุ่น 82)",
+    "2. คอลัมน์ที่จำเป็นคือ ชื่อ และ สกุล เท่านั้น — รุ่นระบุจากชื่อไฟล์ได้ (เช่น 54-2535.xlsx = รุ่น 54)",
     "3. ลำดับคอลัมน์สลับกันได้ ระบบอ่านจากชื่อหัวคอลัมน์ และจะไม่สนใจคอลัมน์อื่นที่เพิ่มเข้ามา",
-    "4. เลขประจำตัวนิสิต 10 หลัก (2 หลักแรก = ปีที่เข้าศึกษา เช่น 63 = พ.ศ. 2563) ถ้าไม่มีจะเว้นว่างไว้ — ปีที่เข้าศึกษาระบบอ่านจากชื่อไฟล์ (เช่น 19-2500.xlsx = พ.ศ. 2500) หรือคำนวณจากรุ่น",
-    "5. ระบบจะสร้างรหัสยืนยันตัวตนให้อัตโนมัติ (ปีเข้า+ลำดับ 3 หลัก เช่น 2563001) ดูได้ในไฟล์ส่งออก",
+    "4. เลขประจำตัวนิสิต ถ้าไม่มีจะเว้นว่างไว้ — ปีที่เข้าศึกษาระบบคำนวณจากรุ่น (รุ่น+2481)",
+    "5. ระบบจะสร้างรหัสยืนยันตัวตนให้อัตโนมัติ (ปีเข้า+ลำดับ 3 หลัก เช่น 2535001) ดูได้ในไฟล์ส่งออก",
     "6. อัปโหลดที่หน้า /admin แท็บ \"นำเข้า / ส่งออก\" แล้วกด \"ตรวจสอบไฟล์ก่อน\" เพื่อดูผลโดยยังไม่บันทึก",
     "7. นำเข้าไฟล์เดิมซ้ำได้เสมอ ระบบจะอัปเดตข้อมูลอ้างอิงให้ โดยไม่ทับข้อมูลที่นิสิตเก่ากรอกไว้แล้ว"
   ].forEach((line) => {

@@ -45,19 +45,6 @@ const SURNAMES = [
   "ขจรเดช", "จรัสแสง", "ฉัตรมงคล", "เชิดชูเกียรติ", "ญาณเดช", "ฐิติวัฒน์", "ณรงค์ฤทธิ์", "เดชอุดม", "ตรีเนตร", "ถนอมศักดิ์"
 ];
 
-const NOTES = [
-  "ตัวแทนรุ่นยืนยันข้อมูลแล้ว",
-  "ติดต่อทางอีเมลเท่านั้น",
-  "ปัจจุบันทำงานต่างประเทศ",
-  "รอยืนยันเบอร์โทรใหม่",
-  "ขอให้ติดต่อผ่านตัวแทนรุ่น",
-  "เปลี่ยนนามสกุลหลังสมรส",
-  "เกษียณแล้ว",
-  "ที่อยู่เดิมติดต่อไม่ได้"
-];
-
-const EMAIL_DOMAINS = ["gmail.com", "hotmail.com", "outlook.com", "yahoo.com", "pharm.example.ac.th"];
-const EMAIL_STEMS = ["somchai", "suda", "kitti", "wanna", "anusorn", "piya", "natt", "chai", "siri", "porn", "thana", "arun"];
 
 /**
  * Map a batch number to the 2-digit entry-year suffix.
@@ -105,7 +92,6 @@ export function generateSampleRows(total = 10000, { seed = 25690816, maxBatch = 
   const random = createRandom(seed);
   const pick = (list) => list[Math.floor(random() * list.length)];
   const chance = (probability) => random() < probability;
-  const digits = (length) => Array.from({ length }, () => Math.floor(random() * 10)).join("");
 
   const rows = [];
   batchSizes(total, maxBatch).forEach((size, index) => {
@@ -113,21 +99,12 @@ export function generateSampleRows(total = 10000, { seed = 25690816, maxBatch = 
     for (let sequence = 1; sequence <= size; sequence += 1) {
       const isFemale = chance(0.62);
       const firstName = isFemale ? pick(FEMALE_NAMES) : pick(MALE_NAMES);
-      const changedSurname = isFemale && chance(0.22);
-      const changedFirstName = chance(0.04);
-
       rows.push({
+        "no.": rows.length + 1,
+        "เลขประจำตัวนิสิต": formatStudentId(batch, sequence),
         "คำนำหน้า": isFemale ? (chance(0.45) ? "นาง" : "นางสาว") : "นาย",
         "ชื่อ": firstName,
-        "นามสกุล": pick(SURNAMES),
-        "รุ่น": batch,
-        "ปีที่เข้าศึกษา": 2481 + batch,
-        "เลขประจำตัวนิสิต": formatStudentId(batch, sequence),
-        "ชื่อปัจจุบัน": changedFirstName ? (isFemale ? pick(FEMALE_NAMES) : pick(MALE_NAMES)) : "",
-        "นามสกุลปัจจุบัน": changedSurname ? pick(SURNAMES) : "",
-        "อีเมลสำหรับติดต่อ": chance(0.55) ? `${pick(EMAIL_STEMS)}${Math.floor(random() * 900 + 100)}@${pick(EMAIL_DOMAINS)}` : "",
-        "เบอร์โทรสำหรับติดต่อ": chance(0.68) ? `0${pick(["6", "8", "9"])}${digits(8)}` : "",
-        "หมายเหตุ": chance(0.09) ? pick(NOTES) : ""
+        "สกุล": pick(SURNAMES),
       });
     }
   });
@@ -137,10 +114,6 @@ export function generateSampleRows(total = 10000, { seed = 25690816, maxBatch = 
 export function summariseSampleRows(rows) {
   return {
     total: rows.length,
-    batches: new Set(rows.map((row) => row["รุ่น"])).size,
-    uniqueStudentIds: new Set(rows.map((row) => row["เลขประจำตัวนิสิต"])).size,
-    withNameChange: rows.filter((row) => row["ชื่อปัจจุบัน"] || row["นามสกุลปัจจุบัน"]).length,
-    withEmail: rows.filter((row) => row["อีเมลสำหรับติดต่อ"]).length,
-    withPhone: rows.filter((row) => row["เบอร์โทรสำหรับติดต่อ"]).length
+    uniqueStudentIds: new Set(rows.map((row) => row["เลขประจำตัวนิสิต"]).filter(Boolean)).size,
   };
 }

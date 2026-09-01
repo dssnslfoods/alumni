@@ -367,7 +367,7 @@ router.get("/import/template.xlsx", requirePermission("alumni.import"), route(as
   res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").send(Buffer.from(await buildImportTemplate({ rows })));
 }));
 
-const DEMO_FILES = { "82-2563": "82-2563.xlsx", "15-2497": "15-2497.xlsx" };
+const DEMO_FILES = { "54-2535": "54-2535.xlsx", "15-2497": "15-2497.xlsx" };
 
 router.get("/import/demo/:name", requirePermission("alumni.import"), route(async (req, res) => {
   const entry = DEMO_FILES[req.params.name];
