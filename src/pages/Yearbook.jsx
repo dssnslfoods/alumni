@@ -59,6 +59,7 @@ export function Yearbook() {
   const [wasFaculty, setWasFaculty] = useState(false);
   const [facultyTitle, setFacultyTitle] = useState("");
   const [facultyTitleOther, setFacultyTitleOther] = useState(false);
+  const [studentId, setStudentId] = useState("");
   const [entryYear, setEntryYear] = useState("");
   const [outstandingAlumni, setOutstandingAlumni] = useState(false);
   const [outstandingYear, setOutstandingYear] = useState("");
@@ -153,6 +154,7 @@ export function Yearbook() {
       setWasFaculty(!!data.alum.wasFaculty);
       setFacultyTitle(data.alum.facultyTitle || "");
       if (data.alum.facultyTitle && !["ศ.", "รศ.", "ผศ.", "อ.", "ศ.ดร.", "รศ.ดร.", "ผศ.ดร.", "อ.ดร."].includes(data.alum.facultyTitle)) setFacultyTitleOther(true);
+      setStudentId(data.alum.studentId || "");
       setEntryYear(data.alum.entryYear != null ? String(data.alum.entryYear) : "");
       setOutstandingAlumni(!!data.alum.outstandingAlumni);
       setOutstandingYear(data.alum.outstandingYear ? String(data.alum.outstandingYear) : "");
@@ -222,6 +224,7 @@ export function Yearbook() {
     body.append("currentLastName", lastName);
     body.append("legalFirstName", legalFirst);
     body.append("legalLastName", legalLast);
+    body.append("studentId", studentId);
     body.append("entryYear", entryYear);
     body.append("wasFaculty", wasFaculty ? "yes" : "no");
     if (wasFaculty && facultyTitle) body.append("facultyTitle", facultyTitle);
@@ -251,6 +254,7 @@ export function Yearbook() {
     body.append("currentLastName", lastName);
     body.append("legalFirstName", legalFirst);
     body.append("legalLastName", legalLast);
+    body.append("studentId", studentId);
     body.append("entryYear", entryYear);
     body.append("outstandingAlumni", outstandingAlumni ? "yes" : "no");
     if (outstandingAlumni) body.append("outstandingYear", outstandingYear || "");
@@ -449,7 +453,20 @@ export function Yearbook() {
           <p>ยืนยันตัวตนเรียบร้อยแล้ว กรุณากรอกข้อความที่ต้องการให้ปรากฏในหนังสือ</p>
           <div className="identity">
             <span>{legalFirst} {legalLast}</span>
-            <small>รุ่น {alum.batch}{alum.studentId ? ` · รหัสนิสิต ${alum.studentId}` : ""}</small>
+            <small>รุ่น {alum.batch}</small>
+          </div>
+          <div className="student-id-field">
+            <h3 className="section-title">รหัสประจำตัวนิสิต</h3>
+            <div className="two-fields">
+              <Field
+                label="รหัสประจำตัวนิสิต"
+                value={studentId}
+                setValue={setStudentId}
+                placeholder="เช่น 3034123456"
+                inputMode="numeric"
+              />
+            </div>
+            <small className="field-hint">หากไม่ทราบ สามารถเว้นว่างไว้ได้</small>
           </div>
           <div className="faculty-field">
             <h3 className="section-title">เคยเป็นอาจารย์ที่คณะหรือไม่</h3>
@@ -487,13 +504,8 @@ export function Yearbook() {
                 setValue={setEntryYear}
                 placeholder="เช่น 2526"
                 inputMode="numeric"
-                disabled={entryYear === "unknown"}
               />
             </div>
-            <label className="checkbox-field">
-              <input type="checkbox" checked={entryYear === "unknown"} onChange={(e) => setEntryYear(e.target.checked ? "unknown" : "")} />
-              <span>จำไม่ได้</span>
-            </label>
           </div>
           <div className="outstanding-field">
             <h3 className="section-title">ศิษย์เก่าดีเด่น</h3>
@@ -693,7 +705,8 @@ export function Yearbook() {
             )}
             <Review label="ช่องทางติดต่อ" value={selectedContactDetails.length ? selectedContactDetails.map((item) => `${item.label}: ${item.value}`).join(" | ") : "ไม่ประสงค์แสดง"} />
             <Review label="เคยเป็นอาจารย์ที่คณะ" value={wasFaculty ? `ใช่ — ${facultyTitle || "ไม่ระบุตำแหน่ง"}` : "ไม่ใช่"} />
-            <Review label="ปีการศึกษาที่เข้า" value={entryYear === "unknown" ? "จำไม่ได้" : (entryYear || "ไม่ระบุ")} />
+            <Review label="รหัสประจำตัวนิสิต" value={studentId || "ไม่ระบุ"} />
+            <Review label="ปีการศึกษาที่เข้า" value={entryYear || "ไม่ระบุ"} />
             <Review label="ศิษย์เก่าดีเด่น" value={outstandingAlumni ? `ใช่ — ${outstandingYear === "n/a" ? "จำไม่ได้" : `พ.ศ. ${outstandingYear || "ไม่ระบุปี"}`}` : "ไม่ใช่"} />
           </div>
           <div className="pdpa">

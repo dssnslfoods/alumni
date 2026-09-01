@@ -374,6 +374,7 @@ header strong,header span { display:block; } header strong { font-size:1.03rem; 
 /* ---------- บล็อกชื่อ-นามสกุลที่ใช้ในหนังสือ ---------- */
 .section-title { margin:26px 0 12px!important; padding-top:22px; border-top:1px solid var(--line); }
 .section-title:first-of-type { margin-top:20px!important; padding-top:0; border-top:0; }
+.field-hint { display:block; margin-top:6px; color:var(--muted); font-size:.85rem; }
 .name-block { margin-bottom:6px; }
 .name-original { display:grid; gap:4px; padding:14px 16px; border-left:4px solid var(--gold); background:#faf6ea; }
 .name-original span { color:var(--muted); font-size:.9rem; }
