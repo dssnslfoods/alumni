@@ -104,7 +104,7 @@ export function referenceFields({ studentId, batch, firstName, lastName, title =
   return {
     studentId: student,
     batch,
-    entryYear: entryYearFromStudentId(student) || "",
+    entryYear: entryYearFromStudentId(student) || (batch ? 2481 + batch : ""),
     title: normalizeText(title),
     legalFirstName: first,
     legalLastName: last,
