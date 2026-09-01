@@ -183,7 +183,7 @@ export function searchResult(record) {
 /** Full record for an administrator. */
 export function alumniView(record) {
   if (!record) return null;
-  const { accessCodeHash: _hash, verificationCode: _code, ...safe } = record;
+  const { accessCodeHash: _hash, ...safe } = record;
   return safe;
 }
 

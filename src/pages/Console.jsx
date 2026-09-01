@@ -536,7 +536,7 @@ function AlumniTable({ user }) {
           <table className="data-table">
             <thead>
               <tr>
-              <th>รุ่น</th><th>ชื่อสมัยเรียน</th><th>ชื่อในหนังสือ</th><th>สถานะส่งข้อมูล</th>
+              <th>รุ่น</th><th>ชื่อสมัยเรียน</th><th>รหัสยืนยัน</th><th>ชื่อในหนังสือ</th><th>สถานะส่งข้อมูล</th>
               <th>เบอร์ติดต่อ</th><th>รูป</th><th>ช่องทางที่ลงหนังสือ</th><th>สถานะติดตาม</th>
               {canEdit && <th></th>}
             </tr>
@@ -546,6 +546,7 @@ function AlumniTable({ user }) {
                 <tr key={record.id} className={record.followUp?.state === "deceased" ? "row-memorial" : ""}>
                   <td>{record.batch}</td>
                   <td>{record.legalFirstName} {record.legalLastName}<br /><small>{record.studentId}</small></td>
+                  <td><code>{record.verificationCode || "—"}</code></td>
                   <td>{record.currentFirstName} {record.currentLastName}</td>
                   <td>
                     {canEdit ? (
@@ -582,7 +583,7 @@ function AlumniTable({ user }) {
                   )}
                 </tr>
               ))}
-              {!data?.records?.length && <tr><td colSpan={canEdit ? 9 : 8} className="empty">ไม่พบข้อมูลตามเงื่อนไข</td></tr>}
+              {!data?.records?.length && <tr><td colSpan={canEdit ? 10 : 9} className="empty">ไม่พบข้อมูลตามเงื่อนไข</td></tr>}
             </tbody>
           </table>
         </>
