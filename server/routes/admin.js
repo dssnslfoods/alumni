@@ -334,7 +334,7 @@ router.post("/import/prepare", requirePermission("alumni.import"), multipartBody
   await audit(req, "alumni.import.prepare", {
     targetType: "importJob",
     targetId: parsed.jobId,
-    meta: { totalRows: parsed.totalRows, validRows: parsed.validRows, skipped: parsed.skipped }
+    meta: { filename: file.filename, totalRows: parsed.totalRows, validRows: parsed.validRows, skipped: parsed.skipped }
   });
   res.json({ job: { ...parsed, ...counts } });
 }));
@@ -378,7 +378,7 @@ router.post("/import/commit", requirePermission("alumni.import"), route(async (r
   await audit(req, "alumni.import", {
     targetType: "importJob",
     targetId: job.jobId,
-    meta: { totalRows: job.totalRows, inserted: job.inserted, updated: job.updated, skipped: job.skipped, status: job.status }
+    meta: { filename: job.filename, totalRows: job.totalRows, inserted: job.inserted, updated: job.updated, skipped: job.skipped, status: job.status }
   });
   res.json({ job });
 }));

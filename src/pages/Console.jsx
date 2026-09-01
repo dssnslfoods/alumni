@@ -1485,6 +1485,46 @@ function SettingsPanel() {
 
 /* ------------------------------- audit log -------------------------------- */
 
+const ACTION_LABELS = {
+  "alumni.import": "นำเข้าข้อมูล",
+  "alumni.import.prepare": "ตรวจสอบไฟล์",
+  "alumni.submit": "ส่งข้อมูล",
+  "alumni.update": "แก้ไขข้อมูล",
+  "alumni.followUp": "อัปเดตสถานะติดตาม",
+  "users.create": "สร้างบัญชีผู้ใช้",
+  "users.update": "แก้ไขบัญชีผู้ใช้",
+  "users.delete": "ลบบัญชีผู้ใช้",
+  "users.resetPassword": "รีเซ็ตรหัสผ่าน",
+  "auth.login": "เข้าสู่ระบบ",
+  "auth.changePassword": "เปลี่ยนรหัสผ่าน",
+  "data.reset": "ล้างข้อมูลทั้งหมด",
+  "data.resetInput": "ล้างข้อมูลที่กรอก",
+  "settings.update": "อัปเดตการตั้งค่า",
+  "alumni.regenerateCodes": "สร้างรหัสยืนยันใหม่",
+};
+
+function describeAudit(log) {
+  const m = log.meta || {};
+  switch (log.action) {
+    case "alumni.import":
+      return `นำเข้าไฟล์ ${m.filename || "—"}: ${(m.inserted || 0).toLocaleString("th-TH")} รายการใหม่, ${(m.updated || 0).toLocaleString("th-TH")} อัปเดต${m.skipped ? `, ข้าม ${m.skipped}` : ""}`;
+    case "alumni.import.prepare":
+      return `ตรวจสอบไฟล์ ${m.filename || "—"}: ${(m.totalRows || 0).toLocaleString("th-TH")} แถว, ผ่าน ${(m.validRows || 0).toLocaleString("th-TH")}${m.skipped ? `, ข้าม ${m.skipped}` : ""}`;
+    case "alumni.submit":
+      return `ส่งข้อมูลหนังสืออนุสรณ์${m.status === "declined" ? " (แจ้งไม่ประสงค์)" : ""}`;
+    case "alumni.followUp":
+      return `อัปเดตสถานะ: ${m.state || "—"}`;
+    case "users.create":
+      return `สร้างบัญชี${m.role ? ` (${m.role})` : ""}`;
+    case "data.reset":
+      return `ล้างข้อมูล: ${(m.alumni || 0).toLocaleString("th-TH")} ระเบียน, ${(m.photos || 0).toLocaleString("th-TH")} รูป`;
+    case "data.resetInput":
+      return `ล้างข้อมูลที่กรอก: ${(m.alumni || 0).toLocaleString("th-TH")} ระเบียน, ${(m.photos || 0).toLocaleString("th-TH")} รูป`;
+    default:
+      return Object.keys(m).length ? JSON.stringify(m) : "—";
+  }
+}
+
 function AuditLog() {
   const { loading, data, error, reload } = useAsync(() => api("/api/admin/audit?limit=150"));
   return (
@@ -1497,15 +1537,14 @@ function AuditLog() {
       <Alert>{error}</Alert>
       {loading ? <p className="console-loading">กำลังโหลด…</p> : (
         <table className="data-table">
-          <thead><tr><th>เวลา</th><th>ผู้ทำรายการ</th><th>การกระทำ</th><th>เป้าหมาย</th><th>รายละเอียด</th></tr></thead>
+          <thead><tr><th>เวลา</th><th>ผู้ทำรายการ</th><th>การกระทำ</th><th>รายละเอียด</th></tr></thead>
           <tbody>
             {(data?.logs || []).map((log) => (
               <tr key={log.id}>
                 <td>{formatTime(log.at)}</td>
                 <td>{log.actorUsername || "—"}</td>
-                <td><code>{log.action}</code></td>
-                <td>{log.targetId || "—"}</td>
-                <td className="meta-cell">{Object.keys(log.meta || {}).length ? JSON.stringify(log.meta) : "—"}</td>
+                <td>{ACTION_LABELS[log.action] || log.action}</td>
+                <td className="meta-cell">{describeAudit(log)}</td>
               </tr>
             ))}
           </tbody>
