@@ -9,6 +9,7 @@ import {
   appendNameHistory,
   findAlumniById,
   normalizeText,
+  searchKey,
   parseBatch,
   bumpPublicStats,
   publicStats,
@@ -17,8 +18,7 @@ import {
   searchResult,
   selfView,
   syncSubmission,
-  validateContacts,
-  verifyIdCard
+  validateContacts
 } from "../domain/alumni.js";
 import { deletePhoto, normalizePhoto, storePhoto } from "../domain/photos.js";
 import { findRepresentatives } from "../domain/users.js";
@@ -28,7 +28,7 @@ const router = express.Router();
 const searchLimiter = createRateLimiter({ windowMs: 10 * 60 * 1000, max: 200 });
 
 /**
- * The attack worth stopping is guessing one person's 5 digits, so the tight
+ * The attack worth stopping is guessing one person's 7-digit code, so the tight
  * limit is per alumni record. Thai mobile networks put thousands of people
  * behind one CGNAT address, so a strict per-IP cap would lock out whole
  * groups of legitimate alumni — the per-IP limit stays deliberately loose and
@@ -78,8 +78,7 @@ router.get("/stats", route(async (_req, res) => {
 
 router.post("/search", route(async (req, res) => {
   if (!searchLimiter(clientIp(req))) throw tooMany("ค้นหาถี่เกินไป กรุณารอสักครู่");
-  const batch = parseBatch(req.body?.batch);
-  if (batch === null) throw badRequest(`กรุณาระบุรุ่นเป็นตัวเลข 1-${effectiveMaxBatch()}`);
+  const batch = req.body?.batch ? parseBatch(req.body.batch) : null;
   const matches = await searchAlumni(batch, req.body?.query);
   res.json({ matches: matches.map(searchResult) });
 }));
@@ -123,9 +122,15 @@ router.post("/verify", route(async (req, res) => {
   if (!verifyPerRecordLimiter(`rec:${alumniId}`)) throw tooMany("ยืนยันตัวตนของรายชื่อนี้หลายครั้งเกินไป กรุณารอ 15 นาทีแล้วลองใหม่");
   if (!verifyPerIpLimiter(clientIp(req))) throw tooMany("มีการยืนยันตัวตนจำนวนมากจากเครือข่ายนี้ กรุณารอสักครู่แล้วลองใหม่");
   const record = await findAlumniById(alumniId);
-  if (!record || !verifyIdCard(record, req.body?.idCardLast5)) {
+  if (!record) {
     await audit(req, "public.verify.failed", { targetType: "alumni", targetId: alumniId });
-    throw notFound("ข้อมูลยืนยันตัวตนไม่ตรงกับฐานข้อมูลอ้างอิง");
+    throw notFound("ไม่พบรายชื่อนี้ในฐานข้อมูล");
+  }
+  const code = String(req.body?.verificationCode || "").trim();
+  if (!code) throw badRequest("กรุณาระบุรหัสยืนยันตัวตน");
+  if (code !== record.verificationCode) {
+    await audit(req, "public.verify.failed", { targetType: "alumni", targetId: alumniId, meta: { code: code.slice(0, 10) } });
+    throw badRequest("รหัสยืนยันตัวตนไม่ถูกต้อง");
   }
   await audit(req, "public.verify.success", { targetType: "alumni", targetId: record.id });
   res.json({ submitToken: issueSubmitToken(record.id), expiresInMinutes: SUBMIT_TOKEN_MINUTES, alum: selfView(record) });
@@ -160,6 +165,8 @@ router.post("/decline", route(async (req, res) => {
     declinedAt: now,
     photo: null,
     bio: "",
+    wasFaculty: false,
+    facultyTitle: "",
     contacts: [],
     pdpa: { consent: false, consentAt: "", version: settings.pdpaVersion, withdrawnAt: now },
     submittedAt: "",
@@ -173,6 +180,79 @@ router.post("/decline", route(async (req, res) => {
   res.json({ ok: true, hadSubmitted });
 }));
 
+router.post("/draft", multipartBody({ maxFiles: 1 }), route(async (req, res) => {
+  if (!submitLimiter(clientIp(req))) throw tooMany();
+  const record = await recordFromSubmitToken(req);
+
+  const wasFaculty = String(req.body?.wasFaculty) === "yes";
+  const entryYearRaw = normalizeText(req.body?.entryYear);
+  const entryYear = entryYearRaw === "unknown" ? "unknown" : (parseInt(entryYearRaw, 10) || "");
+  const outstandingAlumni = String(req.body?.outstandingAlumni) === "yes";
+  const outstandingYearRaw = normalizeText(req.body?.outstandingYear);
+  const outstandingYear = outstandingAlumni
+    ? (outstandingYearRaw === "n/a" ? "n/a" : (parseInt(outstandingYearRaw, 10) || ""))
+    : "";
+
+  const facultyTitle = wasFaculty ? normalizeText(req.body?.facultyTitle) : "";
+
+  const patch = {
+    wasFaculty,
+    facultyTitle,
+    entryYear,
+    outstandingAlumni,
+    outstandingYear,
+    draftAt: new Date().toISOString(),
+    updatedBy: "self"
+  };
+
+  const firstName = normalizeText(req.body?.currentFirstName);
+  const lastName = normalizeText(req.body?.currentLastName);
+  if (firstName) patch.currentFirstName = firstName;
+  if (lastName) patch.currentLastName = lastName;
+
+  const newLegalFirst = normalizeText(req.body?.legalFirstName);
+  const newLegalLast = normalizeText(req.body?.legalLastName);
+  if (newLegalFirst && newLegalLast) {
+    const legalChanged = searchKey(newLegalFirst) !== searchKey(record.legalFirstName)
+      || searchKey(newLegalLast) !== searchKey(record.legalLastName);
+    if (legalChanged) {
+      if (!record.importedFirstName) {
+        patch.importedFirstName = record.legalFirstName;
+        patch.importedLastName = record.legalLastName;
+      }
+      patch.legalFirstName = newLegalFirst;
+      patch.legalLastName = newLegalLast;
+      patch.searchFirst = searchKey(newLegalFirst);
+      patch.searchLast = searchKey(newLegalLast);
+      patch.searchFull = `${searchKey(newLegalFirst)}${searchKey(newLegalLast)}`;
+    }
+  }
+
+  let contacts;
+  try {
+    contacts = validateContacts(typeof req.body?.contacts === "string" ? JSON.parse(req.body.contacts || "[]") : req.body?.contacts);
+    if (contacts.length) patch.contacts = contacts;
+  } catch { /* ignore invalid contacts in draft */ }
+
+  const photoChoice = req.body?.photoChoice;
+  const uploaded = req.files?.photo;
+  if (photoChoice === "placeholder") {
+    if (record.photo?.storagePath) await deletePhoto(record.photo);
+    patch.photo = { choice: "placeholder", updatedAt: new Date().toISOString() };
+  } else if (uploaded) {
+    const previous = record.photo;
+    patch.photo = await storePhoto(
+      { ...record, currentFirstName: firstName || record.currentFirstName, currentLastName: lastName || record.currentLastName },
+      await normalizePhoto(uploaded)
+    );
+    if (previous?.storagePath) await deletePhoto(previous);
+  }
+
+  await saveAlumni(record.id, patch);
+  await audit(req, "public.draft", { targetType: "alumni", targetId: record.id });
+  res.json({ ok: true });
+}));
+
 router.post("/submit", multipartBody({ maxFiles: 1 }), route(async (req, res) => {
   if (!submitLimiter(clientIp(req))) throw tooMany();
   const settings = await getSettings();
@@ -181,7 +261,18 @@ router.post("/submit", multipartBody({ maxFiles: 1 }), route(async (req, res) =>
   const record = await recordFromSubmitToken(req);
   const firstName = normalizeText(req.body?.currentFirstName);
   const lastName = normalizeText(req.body?.currentLastName);
+  const newLegalFirst = normalizeText(req.body?.legalFirstName);
+  const newLegalLast = normalizeText(req.body?.legalLastName);
   const bio = normalizeText(req.body?.bio);
+  const wasFaculty = String(req.body?.wasFaculty) === "yes";
+  const facultyTitle = wasFaculty ? normalizeText(req.body?.facultyTitle) : "";
+  const entryYearRaw = normalizeText(req.body?.entryYear);
+  const entryYear = entryYearRaw === "unknown" ? "unknown" : (parseInt(entryYearRaw, 10) || "");
+  const outstandingAlumni = String(req.body?.outstandingAlumni) === "yes";
+  const outstandingYearRaw = normalizeText(req.body?.outstandingYear);
+  const outstandingYear = outstandingAlumni
+    ? (outstandingYearRaw === "n/a" ? "n/a" : (parseInt(outstandingYearRaw, 10) || ""))
+    : "";
   const photoChoice = req.body?.photoChoice === "placeholder" ? "placeholder" : "upload";
   const uploaded = req.files?.photo;
 
@@ -209,11 +300,20 @@ router.post("/submit", multipartBody({ maxFiles: 1 }), route(async (req, res) =>
   }
 
   const now = new Date().toISOString();
+  const legalChanged = newLegalFirst && newLegalLast
+    && (searchKey(newLegalFirst) !== searchKey(record.legalFirstName)
+      || searchKey(newLegalLast) !== searchKey(record.legalLastName));
+
   const patch = {
     currentFirstName: firstName,
     currentLastName: lastName,
-    nameHistory: appendNameHistory(record, firstName, lastName, "self"),
+    nameHistory: legalChanged ? (record.nameHistory || []) : appendNameHistory(record, firstName, lastName, "self"),
     bio,
+    wasFaculty,
+    facultyTitle,
+    entryYear,
+    outstandingAlumni,
+    outstandingYear,
     contacts,
     photo,
     status: "submitted",
@@ -221,6 +321,18 @@ router.post("/submit", multipartBody({ maxFiles: 1 }), route(async (req, res) =>
     submittedAt: now,
     updatedBy: "self"
   };
+
+  if (legalChanged) {
+    if (!record.importedFirstName) {
+      patch.importedFirstName = record.legalFirstName;
+      patch.importedLastName = record.legalLastName;
+    }
+    patch.legalFirstName = newLegalFirst;
+    patch.legalLastName = newLegalLast;
+    patch.searchFirst = searchKey(newLegalFirst);
+    patch.searchLast = searchKey(newLegalLast);
+    patch.searchFull = `${searchKey(newLegalFirst)}${searchKey(newLegalLast)}`;
+  }
 
   await saveAlumni(record.id, patch);
   await syncSubmission({ ...record, ...patch });

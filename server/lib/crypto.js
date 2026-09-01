@@ -25,15 +25,8 @@ export async function verifyPassword(password, stored) {
   return crypto.timingSafeEqual(expected, derived);
 }
 
-/**
- * Keyed hash for the last 5 digits of the national ID card.
- * The pepper lives only on the server, so a leaked database cannot be
- * brute-forced across the 100,000 possible values.
- */
-export function hashIdCardLast5(value) {
-  const digits = String(value || "").replace(/\D/g, "").slice(-5);
-  if (digits.length !== 5) return "";
-  return crypto.createHmac("sha256", config.idHashSecret).update(`idcard:${digits}`).digest("base64url");
+export function generateVerificationCode(entryYear, seq) {
+  return `${entryYear}${String(seq).padStart(3, "0")}`;
 }
 
 export function safeEquals(left, right) {

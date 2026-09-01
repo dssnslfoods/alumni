@@ -76,15 +76,13 @@ settings/system      การตั้งค่าระบบ (เปิด/�
 
 | ฟิลด์ | ชนิด | คำอธิบาย |
 | --- | --- | --- |
-| `studentId` | string | ตัวเลขล้วน |
+| `studentId` | string | เลขประจำตัวนิสิต 10 หลัก (2 หลักแรก = ปีเข้าศึกษา เช่น 63 = 2563) |
 | `batch` | number | 1-88 (เป็น **ตัวเลข** ไม่ใช่ string เพื่อให้เรียงและ query ถูกต้อง) |
+| `entryYear` | number | ปีที่เข้าศึกษา (พ.ศ.) คำนวณจาก 2 หลักแรกของ studentId |
 | `title` | string | คำนำหน้า |
 | `legalFirstName` / `legalLastName` | string | ชื่อ-นามสกุลสมัยเรียน |
 | `searchFirst` / `searchLast` / `searchFull` | string | คีย์ค้นหา: ตัดช่องว่าง + lowercase + NFC |
-| `idCardLast5Hash` | string | **HMAC-SHA256** ของเลขท้ายบัตร 5 หลัก ด้วย `ID_HASH_SECRET` |
-
-> เลข 5 หลักมีความเป็นไปได้เพียง 100,000 แบบ การเก็บ hash เปล่า ๆ จะถูก brute-force ได้ในเสี้ยววินาที
-> จึงต้องใช้ HMAC ที่มี secret ฝั่ง server (pepper) ฐานข้อมูลที่รั่วไหลจึงย้อนกลับเป็นเลขเดิมไม่ได้
+| `verificationCode` | string | รหัสยืนยันตัวตน (ปีเข้า+ลำดับ 3 หลัก เช่น 2563001) — สร้างอัตโนมัติตอนนำเข้า |
 
 ### ฟิลด์ที่ "เป็นของ" นิสิตเก่า (นำเข้าซ้ำจะไม่ทับ)
 
@@ -94,7 +92,7 @@ settings/system      การตั้งค่าระบบ (เปิด/�
 | `nameHistory` | array | `[{ fullName, changedAt, changedBy }]` เก็บประวัติชื่อเดิมทุกครั้งที่เปลี่ยน |
 | `status` | string | `pending` \| `submitted` \| `declined` |
 | `photo` | object \| null | `{ choice, bucket, storagePath, downloadUrl, width, height, bytes, updatedAt }` |
-| `contacts` | array | `[{ type, value }]` — type คือ `facebook` \| `instagram` \| `line` \| `phone` |
+| `contacts` | array | `[{ type, value }]` — type คือ `email` \| `line` \| `phone` |
 | `bio` | string | ไม่เกิน 500 ตัวอักษร (ปรับได้ที่ `settings`) |
 | `pdpa` | object | `{ consent, consentAt, version }` |
 | `submittedAt` | ISO string | |
@@ -112,7 +110,7 @@ settings/system      การตั้งค่าระบบ (เปิด/�
 
 ## 3. `alumniSubmissions/{alumniId}` — สำเนาสำหรับทีมออกแบบ
 
-สำเนาของระเบียนข้างต้นที่ **ตัด `idCardLast5Hash`, `source` และ `outreach` ออก** เขียนทับทุกครั้งที่มีการส่งข้อมูลหรือผู้ดูแลแก้ไข
+สำเนาของระเบียนข้างต้นที่ **ตัด `verificationCode`, `source` และ `outreach` ออก** เขียนทับทุกครั้งที่มีการส่งข้อมูลหรือผู้ดูแลแก้ไข
 มีไว้เพื่อให้แชร์สิทธิ์อ่านให้ทีมออกแบบได้ในอนาคตโดยไม่แตะข้อมูลยืนยันตัวตน
 
 ---

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowRight, Check, ChevronLeft, Facebook, ImagePlus, Instagram, Landmark, Phone, Search, ShieldCheck, Upload, UserRoundCheck, X } from "lucide-react";
+import { ArrowRight, Check, ChevronLeft, ImagePlus, Landmark, Mail, Phone, Search, ShieldCheck, Upload, UserRoundCheck, X } from "lucide-react";
 import { Alert, Field, Review, Shell } from "../components/Shell.jsx";
 import { api } from "../lib/api.js";
 
@@ -7,8 +7,7 @@ const MAX_PHOTO_EDGE = 2000;
 
 /** ต้องตรงกับ CONTACT_RULES ที่ server/domain/alumni.js */
 const CONTACT_RULES = {
-  facebook: { placeholder: "somchai.jaidee หรือ facebook.com/somchai.jaidee", hint: "ใส่ชื่อผู้ใช้ หรือวางลิงก์โปรไฟล์ก็ได้" },
-  instagram: { placeholder: "somchai_j", hint: "ใส่ชื่อผู้ใช้ ไม่ต้องใส่ @" },
+  email: { placeholder: "somchai@gmail.com", hint: "อีเมลที่ต้องการให้แสดงในหนังสือ" },
   line: { placeholder: "somchai2569", hint: "ใส่ LINE ID ไม่ต้องใส่ @ (บัญชีทางการให้ใส่ @ ด้วย)" },
   phone: { placeholder: "081-234-5678", hint: "ตัวเลข 9-10 หลัก ระบบจัดรูปแบบให้อัตโนมัติ" }
 };
@@ -23,8 +22,7 @@ function formatPhoneInput(value) {
 
 const steps = ["ความประสงค์", "ค้นหารายชื่อ", "ยืนยันตัวตน", "ข้อมูลหนังสือ", "รูปและติดต่อ", "ยืนยันส่ง"];
 const contactOptions = [
-  ["facebook", "Facebook", Facebook],
-  ["instagram", "Instagram", Instagram],
+  ["email", "อีเมล", Mail],
   ["line", "LINE ID", Landmark],
   ["phone", "โทรศัพท์", Phone],
   ["none", "ไม่แสดงข้อมูลติดต่อ", X]
@@ -37,27 +35,36 @@ export function Yearbook() {
   const [repBatch, setRepBatch] = useState("");
   const [reps, setReps] = useState(null);
   const [stats, setStats] = useState(null);
-  const [batch, setBatch] = useState("");
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState([]);
   const [selected, setSelected] = useState(null);
-  const [last5, setLast5] = useState("");
+  const [verifyCode, setVerifyCode] = useState("");
   const [submitToken, setSubmitToken] = useState("");
   const [alum, setAlum] = useState(null);
   const [editing, setEditing] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [legalFirst, setLegalFirst] = useState("");
+  const [legalLast, setLegalLast] = useState("");
   const [photoChoice, setPhotoChoice] = useState("upload");
   const [photo, setPhoto] = useState(null);
   const [photoWarning, setPhotoWarning] = useState("");
   const [photoInfo, setPhotoInfo] = useState(null);
   const [uploadStage, setUploadStage] = useState("");
   const [photoResult, setPhotoResult] = useState(null);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState(null);
   const [selectedContacts, setSelectedContacts] = useState([]);
-  const [contactValues, setContactValues] = useState({ facebook: "", instagram: "", line: "", phone: "" });
+  const [contactValues, setContactValues] = useState({ email: "", line: "", phone: "" });
   const [bio, setBio] = useState("");
+  const [wasFaculty, setWasFaculty] = useState(false);
+  const [facultyTitle, setFacultyTitle] = useState("");
+  const [facultyTitleOther, setFacultyTitleOther] = useState(false);
+  const [entryYear, setEntryYear] = useState("");
+  const [outstandingAlumni, setOutstandingAlumni] = useState(false);
+  const [outstandingYear, setOutstandingYear] = useState("");
   const [pdpa, setPdpa] = useState("");
   const [notice, setNotice] = useState("");
+  const [draftSaved, setDraftSaved] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -95,7 +102,8 @@ export function Yearbook() {
   }, []);
 
   const nameChanged = alum && `${firstName} ${lastName}`.trim() !== `${alum.currentFirstName} ${alum.currentLastName}`.trim();
-  const nameChangedFromLegal = alum && `${firstName} ${lastName}`.trim() !== `${alum.legalFirstName} ${alum.legalLastName}`.trim();
+  const nameChangedFromLegal = alum && `${firstName} ${lastName}`.trim() !== `${legalFirst} ${legalLast}`.trim();
+  const legalNameCorrected = alum && `${legalFirst} ${legalLast}`.trim() !== `${alum.legalFirstName} ${alum.legalLastName}`.trim();
   const selectedContactDetails = contactOptions
     .filter(([type]) => selectedContacts.includes(type))
     .map(([type, label]) => ({ type, label, value: contactValues[type] }));
@@ -122,16 +130,16 @@ export function Yearbook() {
     event.preventDefault();
     setMatches([]);
     return run(async () => {
-      const data = await api("/api/public/search", { method: "POST", auth: false, body: { batch, query } });
+      const data = await api("/api/public/search", { method: "POST", auth: false, body: { query } });
       setMatches(data.matches);
-      if (!data.matches.length) setNotice("ไม่พบรายชื่อ กรุณาตรวจชื่อเดิมสมัยเรียนและรุ่นอีกครั้ง");
+      if (!data.matches.length) setNotice("ไม่พบรายชื่อ กรุณาตรวจชื่อเดิมสมัยเรียนอีกครั้ง");
     });
   };
 
   const verify = (event) => {
     event.preventDefault();
     return run(async () => {
-      const data = await api("/api/public/verify", { method: "POST", auth: false, body: { alumniId: selected.id, idCardLast5: last5 } });
+      const data = await api("/api/public/verify", { method: "POST", auth: false, body: { alumniId: selected.id, verificationCode: verifyCode } });
       setSubmitToken(data.submitToken);
       setAlum(data.alum);
       // Re-submitting is an edit: everything already on file is loaded back in
@@ -139,14 +147,22 @@ export function Yearbook() {
       setEditing(data.alum.status === "submitted");
       setFirstName(data.alum.currentFirstName || data.alum.legalFirstName);
       setLastName(data.alum.currentLastName || data.alum.legalLastName);
+      setLegalFirst(data.alum.legalFirstName);
+      setLegalLast(data.alum.legalLastName);
       setBio(data.alum.bio || "");
+      setWasFaculty(!!data.alum.wasFaculty);
+      setFacultyTitle(data.alum.facultyTitle || "");
+      if (data.alum.facultyTitle && !["ศ.", "รศ.", "ผศ.", "อ.", "ศ.ดร.", "รศ.ดร.", "ผศ.ดร.", "อ.ดร."].includes(data.alum.facultyTitle)) setFacultyTitleOther(true);
+      setEntryYear(data.alum.entryYear != null ? String(data.alum.entryYear) : "");
+      setOutstandingAlumni(!!data.alum.outstandingAlumni);
+      setOutstandingYear(data.alum.outstandingYear ? String(data.alum.outstandingYear) : "");
       if (data.alum.photo?.choice) setPhotoChoice(data.alum.photo.choice);
       if (data.alum.contacts?.length) {
         setSelectedContacts(data.alum.contacts.map((contact) => contact.type));
         setContactValues((current) => ({ ...current, ...Object.fromEntries(data.alum.contacts.map((contact) => [contact.type, contact.value])) }));
       }
-      if (data.alum.pdpa?.consent) setPdpa("yes");
-      move(intent === "no" ? 8 : 3);
+      if (data.alum.pdpa?.consent) setPdpa("");
+      move(intent === "no" ? 7 : 2);
     });
   };
 
@@ -160,14 +176,16 @@ export function Yearbook() {
     setPhotoWarning("");
     setPhotoInfo(null);
     setPhotoResult(null);
+    if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+    setPhotoPreviewUrl(null);
     if (!file) return;
 
     const url = URL.createObjectURL(file);
+    setPhotoPreviewUrl(url);
     const probe = new Image();
     probe.onload = () => {
       const { width, height } = probe;
       const shortEdge = Math.min(width, height);
-      // Mirror of the server's rule, so the preview matches the real result.
       const scale = Math.min(MAX_PHOTO_EDGE / Math.max(width, height), 1);
       setPhotoInfo({
         width,
@@ -183,7 +201,6 @@ export function Yearbook() {
           "ส่งได้แต่เมื่อพิมพ์อาจไม่คมชัด หากมีไฟล์ต้นฉบับที่ใหญ่กว่านี้แนะนำให้ใช้ไฟล์นั้นแทน"
         );
       }
-      URL.revokeObjectURL(url);
     };
     probe.onerror = () => URL.revokeObjectURL(url);
     probe.src = url;
@@ -198,24 +215,51 @@ export function Yearbook() {
     });
   };
 
+  async function saveDraft() {
+    if (!submitToken) return;
+    const body = new FormData();
+    body.append("currentFirstName", firstName);
+    body.append("currentLastName", lastName);
+    body.append("legalFirstName", legalFirst);
+    body.append("legalLastName", legalLast);
+    body.append("entryYear", entryYear);
+    body.append("wasFaculty", wasFaculty ? "yes" : "no");
+    if (wasFaculty && facultyTitle) body.append("facultyTitle", facultyTitle);
+    body.append("outstandingAlumni", outstandingAlumni ? "yes" : "no");
+    body.append("outstandingYear", outstandingYear || "");
+    body.append("contacts", JSON.stringify(selectedContactDetails.map(({ type, value }) => ({ type, value }))));
+    body.append("photoChoice", photoChoice);
+    if (photo) body.append("photo", photo);
+    try {
+      await api("/api/public/draft", { method: "POST", auth: false, headers: { "x-submit-token": submitToken }, body });
+    } catch { /* draft save is best-effort */ }
+  }
+
   const confirmDecline = () => run(async () => {
     await api("/api/public/decline", { method: "POST", auth: false, headers: { "x-submit-token": submitToken } });
-    move(7);
+    move(6);
   });
 
   const submit = (event) => {
     event.preventDefault();
-    if (pdpa !== "yes") return setNotice("กรุณาเลือก “ยินยอม” เพื่ออนุญาตให้ใช้ข้อมูลในหนังสืออนุสรณ์");
+    if (pdpa !== "ยืนยันข้อมูล") return setNotice("กรุณาพิมพ์ \"ยืนยันข้อมูล\" เพื่อยืนยันความถูกต้องและให้ความยินยอม");
     if (photoChoice === "upload" && !photo && !alum?.photo?.downloadUrl) return setNotice("กรุณาเลือกไฟล์รูปภาพ หรือเลือกไม่แสดงรูปในหนังสือ");
     if (selectedContactDetails.some((item) => !item.value.trim())) return setNotice("กรุณากรอกข้อมูลในทุกช่องทางติดต่อที่เลือก");
 
     const body = new FormData();
     body.append("currentFirstName", firstName);
     body.append("currentLastName", lastName);
+    body.append("legalFirstName", legalFirst);
+    body.append("legalLastName", legalLast);
+    body.append("entryYear", entryYear);
+    body.append("outstandingAlumni", outstandingAlumni ? "yes" : "no");
+    if (outstandingAlumni) body.append("outstandingYear", outstandingYear || "");
     body.append("photoChoice", photoChoice);
     body.append("contacts", JSON.stringify(selectedContactDetails.map(({ type, value }) => ({ type, value }))));
     body.append("bio", bio);
-    body.append("pdpaConsent", pdpa);
+    body.append("wasFaculty", wasFaculty ? "yes" : "no");
+    if (wasFaculty && facultyTitle) body.append("facultyTitle", facultyTitle);
+    body.append("pdpaConsent", "yes");
     if (photo) body.append("photo", photo);
 
     return run(async () => {
@@ -223,11 +267,11 @@ export function Yearbook() {
       const result = await api("/api/public/submit", { method: "POST", auth: false, headers: { "x-submit-token": submitToken }, body });
       setUploadStage("");
       setPhotoResult(result.photo || null);
-      move(6);
+      move(5);
     });
   };
 
-  if (step === 6) {
+  if (step === 5) {
     const print = photoResult?.print;
     return (
       <Shell>
@@ -330,9 +374,10 @@ export function Yearbook() {
 
       {step === 0 && (
         <section className="screen welcome-screen">
-          <p className="kicker">หนังสืออนุสรณ์ สภจ. 2569</p>
+          <img className="welcome-logo" src="/assets/logo.png" alt="ตราสมาคมนิสิตเก่าคณะเภสัชศาสตร์ จุฬาลงกรณ์มหาวิทยาลัย" />
+          <p className="kicker">หนังสืออนุสรณ์ สภจ. ครบรอบ 21 ปี</p>
           <h1>ยินดีต้อนรับ</h1>
-          <p className="intro">ส่งข้อมูลส่วนตัวสำหรับจัดทำหนังสืออนุสรณ์ สมาคมนิสิตเก่าคณะเภสัชศาสตร์ จุฬาลงกรณ์มหาวิทยาลัย</p>
+          <p className="intro">ฐานข้อมูล ทำเนียบรุ่นและรายชื่อนิสิตเก่า และ คณาจารย์ คณะเภสัชศาสตร์ จุฬาลงกรณ์มหาวิทยาลัย</p>
           <div className="choice-row">
             <button className="intent yes" onClick={() => { setIntent("yes"); move(1); }}>
               <Check /><span>มีความประสงค์</span><small>ส่งข้อมูลเพื่อลงหนังสืออนุสรณ์</small>
@@ -348,41 +393,30 @@ export function Yearbook() {
 
       {step === 1 && (
         <section className="screen compact">
-          <p className="kicker">ขั้นตอน 1 จาก 6</p>
-          <h2>ระบุรุ่นของท่าน</h2>
-          <p>กรอกเป็นตัวเลข ตั้งแต่ 1 ถึง {settings.maxBatch}</p>
-          <label className="large-field">
-            <span>รุ่น</span>
-            <input inputMode="numeric" maxLength="2" value={batch} onChange={(event) => setBatch(event.target.value.replace(/\D/g, "").slice(0, 2))} autoFocus />
-          </label>
-          <button className="next" disabled={!batch || Number(batch) < 1 || Number(batch) > settings.maxBatch} onClick={() => move(2)}>ถัดไป <ArrowRight /></button>
-        </section>
-      )}
-
-      {step === 2 && (
-        <section className="screen compact">
-          <p className="kicker">รุ่น {batch}</p>
-          <h2>ค้นหาชื่อเดิมสมัยเรียน</h2>
-          <p>กรอกชื่อ หรือนามสกุลเดิมอย่างน้อย 2 ตัวอักษร</p>
+          <p className="kicker">ขั้นตอน 1 จาก {steps.length}</p>
+          <h2>ค้นหาชื่อ-นามสกุลสมัยเป็นนิสิต</h2>
+          <p>กรอกชื่อ หรือนามสกุลสมัยเป็นนิสิต อย่างน้อย 2 ตัวอักษร</p>
           <form className="search-form" onSubmit={search}>
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="เช่น อนุสรณ์ ทองสะอาด" autoFocus />
             <button aria-label="ค้นหารายชื่อ" disabled={busy}><Search /></button>
           </form>
           <div className="results">
             {matches.map((item) => (
-              <button key={item.id} className="result" onClick={() => { setSelected(item); move(3); }}>
+              <button key={item.id} className="result" onClick={() => { setSelected(item); move(2); }}>
                 <UserRoundCheck />
                 <span>{item.firstName} {item.lastName}</span>
-                <small>{item.alreadySubmitted ? "ส่งข้อมูลแล้ว — กดเพื่อแก้ไข" : item.studentId ? `รหัสนิสิต ${item.studentId}` : ""}</small>
+                <small>
+                  {item.alreadySubmitted ? "ส่งข้อมูลแล้ว — กดเพื่อแก้ไข" : `รุ่น ${item.batch}${item.studentId ? ` · รหัสนิสิต ${item.studentId}` : ""}`}
+                </small>
                 <ArrowRight />
               </button>
             ))}
           </div>
-          <button className="back" onClick={() => move(1)}><ChevronLeft /> ย้อนกลับ</button>
+          <button className="back" onClick={() => move(0)}><ChevronLeft /> ย้อนกลับ</button>
         </section>
       )}
 
-      {step === 3 && !alum && (
+      {step === 2 && !alum && (
         <section className="screen compact">
           <p className="kicker">ยืนยันตัวตน</p>
           <h2>ยืนยันว่าเป็นท่าน</h2>
@@ -390,24 +424,19 @@ export function Yearbook() {
             <span>{selected?.firstName} {selected?.lastName}</span>
             <small>รุ่น {selected?.batch}</small>
           </div>
-          <p>
-            {intent === "no"
-              ? "เพื่อบันทึกความประสงค์ของท่านให้ถูกคน กรุณายืนยันตัวตนด้วยเลขท้ายบัตรประชาชน 5 หลัก"
-              : "เพื่อปกป้องข้อมูลส่วนบุคคล กรุณากรอกเลขท้ายบัตรประชาชน 5 หลัก"}
-          </p>
+          <p>กรุณาระบุรหัสยืนยันตัวตนที่ได้รับจากตัวแทนรุ่น</p>
           <form onSubmit={verify}>
             <label className="large-field">
-              <span>เลขท้ายบัตรประชาชน 5 หลัก</span>
-              <input inputMode="numeric" maxLength="5" value={last5} onChange={(event) => setLast5(event.target.value.replace(/\D/g, "").slice(0, 5))} autoFocus />
+              <span>รหัสยืนยันตัวตน</span>
+              <input inputMode="numeric" maxLength="10" placeholder="เช่น 2563001" value={verifyCode} onChange={(event) => setVerifyCode(event.target.value.replace(/\D/g, "").slice(0, 10))} autoFocus />
             </label>
-            <button className="next" disabled={last5.length !== 5 || busy}>ยืนยันตัวตน <ShieldCheck /></button>
+            <button className="next" disabled={verifyCode.length < 7 || busy}>ยืนยันตัวตน <ShieldCheck /></button>
           </form>
-          <p className="privacy-note"><ShieldCheck /> ระบบเก็บเลขนี้ในรูปแบบเข้ารหัสทางเดียวเท่านั้น ใช้ตรวจสอบสิทธิ์ และไม่ปรากฏในหนังสือหรือไฟล์สำหรับออกแบบ</p>
-          <button className="back" onClick={() => move(2)}><ChevronLeft /> ย้อนกลับ</button>
+          <button className="back" onClick={() => move(1)}><ChevronLeft /> ย้อนกลับ</button>
         </section>
       )}
 
-      {step === 3 && alum && (
+      {step === 2 && alum && (
         <section className="screen">
           <p className="kicker">ข้อมูลสำหรับหนังสืออนุสรณ์</p>
           <h2>{editing ? "แก้ไขข้อมูลของท่าน" : "ชื่อที่จะใช้ในหนังสือ"}</h2>
@@ -419,43 +448,108 @@ export function Yearbook() {
           )}
           <p>ยืนยันตัวตนเรียบร้อยแล้ว กรุณากรอกข้อความที่ต้องการให้ปรากฏในหนังสือ</p>
           <div className="identity">
-            <span>{alum.legalFirstName} {alum.legalLastName}</span>
+            <span>{legalFirst} {legalLast}</span>
             <small>รุ่น {alum.batch}{alum.studentId ? ` · รหัสนิสิต ${alum.studentId}` : ""}</small>
           </div>
-          <label className="bio-field">
-            <span>ข้อความหรือประวัติโดยย่อ <small>(ไม่เกิน {settings.bioMaxLength} ตัวอักษร)</small></span>
-            <textarea value={bio} maxLength={settings.bioMaxLength} rows="4" onChange={(event) => setBio(event.target.value)} placeholder="เช่น ตำแหน่งงานปัจจุบัน หรือข้อความสั้น ๆ ที่ต้องการให้ปรากฏ" />
-            <em>{bio.length}/{settings.bioMaxLength}</em>
-          </label>
+          <div className="faculty-field">
+            <h3 className="section-title">เคยเป็นอาจารย์ที่คณะหรือไม่</h3>
+            <div className="radio-group">
+              <label><input type="radio" name="wasFaculty" checked={!wasFaculty} onChange={() => { setWasFaculty(false); setFacultyTitle(""); }} /> ไม่ใช่</label>
+              <label><input type="radio" name="wasFaculty" checked={wasFaculty} onChange={() => setWasFaculty(true)} /> ใช่</label>
+            </div>
+            {wasFaculty && (
+              <div className="faculty-title-field">
+                <label className="field-label">ตำแหน่งทางวิชาการ</label>
+                <select value={facultyTitleOther ? "__other" : facultyTitle} onChange={(e) => { if (e.target.value === "__other") { setFacultyTitleOther(true); setFacultyTitle(""); } else { setFacultyTitleOther(false); setFacultyTitle(e.target.value); } }}>
+                  <option value="">— เลือกตำแหน่ง —</option>
+                  <option value="ศ.">ศ. (ศาสตราจารย์)</option>
+                  <option value="รศ.">รศ. (รองศาสตราจารย์)</option>
+                  <option value="ผศ.">ผศ. (ผู้ช่วยศาสตราจารย์)</option>
+                  <option value="อ.">อ. (อาจารย์)</option>
+                  <option value="ศ.ดร.">ศ.ดร. (ศาสตราจารย์ ดร.)</option>
+                  <option value="รศ.ดร.">รศ.ดร. (รองศาสตราจารย์ ดร.)</option>
+                  <option value="ผศ.ดร.">ผศ.ดร. (ผู้ช่วยศาสตราจารย์ ดร.)</option>
+                  <option value="อ.ดร.">อ.ดร. (อาจารย์ ดร.)</option>
+                  <option value="__other">อื่นๆ (ระบุเอง)</option>
+                </select>
+                {facultyTitleOther && (
+                  <Field label="ระบุตำแหน่ง" value={facultyTitle} setValue={setFacultyTitle} placeholder="เช่น ศ.เกียรติคุณ ดร." />
+                )}
+              </div>
+            )}
+          </div>
+          <div className="entry-year-field">
+            <h3 className="section-title">ปีการศึกษาที่เข้า (พ.ศ.)</h3>
+            <div className="two-fields">
+              <Field
+                label="ปี พ.ศ. ที่เข้าศึกษา"
+                value={entryYear === "unknown" ? "" : entryYear}
+                setValue={setEntryYear}
+                placeholder="เช่น 2526"
+                inputMode="numeric"
+                disabled={entryYear === "unknown"}
+              />
+            </div>
+            <label className="checkbox-field">
+              <input type="checkbox" checked={entryYear === "unknown"} onChange={(e) => setEntryYear(e.target.checked ? "unknown" : "")} />
+              <span>จำไม่ได้</span>
+            </label>
+          </div>
+          <div className="outstanding-field">
+            <h3 className="section-title">ศิษย์เก่าดีเด่น</h3>
+            <div className="radio-group">
+              <label><input type="radio" name="outstanding" checked={!outstandingAlumni} onChange={() => { setOutstandingAlumni(false); setOutstandingYear(""); }} /> ไม่ใช่</label>
+              <label><input type="radio" name="outstanding" checked={outstandingAlumni} onChange={() => setOutstandingAlumni(true)} /> ใช่</label>
+            </div>
+            {outstandingAlumni && (
+              <div className="outstanding-year">
+                <label className="field-label">ได้รับเมื่อ พ.ศ.</label>
+                <div className="radio-group">
+                  <label><input type="radio" name="outstandingYearChoice" checked={outstandingYear !== "n/a"} onChange={() => setOutstandingYear("")} /> ระบุปี</label>
+                  <label><input type="radio" name="outstandingYearChoice" checked={outstandingYear === "n/a"} onChange={() => setOutstandingYear("n/a")} /> จำไม่ได้</label>
+                </div>
+                {outstandingYear !== "n/a" && (
+                  <Field
+                    value={outstandingYear}
+                    setValue={setOutstandingYear}
+                    placeholder="เช่น 2560"
+                    inputMode="numeric"
+                  />
+                )}
+              </div>
+            )}
+          </div>
           <div className="purpose">
             <h3>วัตถุประสงค์ของการจัดทำหนังสือ</h3>
             <p>เพื่ออัปเดตชื่อ-นามสกุล รูปถ่ายปัจจุบัน และช่องทางติดต่อของนิสิตเก่า โดยท่านกำหนดได้ว่าจะเปิดเผยข้อมูลใดในหนังสือ</p>
           </div>
-          <button className="next" onClick={() => move(4)}>ดำเนินการต่อ <ArrowRight /></button>
+          <button className="next" onClick={() => { saveDraft(); move(3); }}>ดำเนินการต่อ <ArrowRight /></button>
         </section>
       )}
 
-      {step === 4 && (
+      {step === 3 && (
         <section className="screen">
           <p className="kicker">ข้อมูลที่จะแสดงในหนังสือ</p>
           <h2>เลือกข้อมูลที่จะแสดง</h2>
 
-          <h3 className="section-title">ชื่อ-นามสกุลที่จะใช้ในหนังสือ</h3>
+          <h3 className="section-title">ชื่อ-นามสกุลสมัยเรียน</h3>
           <div className="name-block">
-            <div className="name-original">
-              <span>ชื่อ-นามสกุลสมัยเรียน</span>
-              <strong>{alum?.legalFirstName} {alum?.legalLastName}</strong>
-              <small>ระบบเก็บชื่อนี้ไว้เสมอเพื่อใช้ค้นหาและอ้างอิงกับทะเบียนเดิม จะไม่ถูกลบหรือแทนที่</small>
+            <div className="two-fields">
+              <Field label="ชื่อสมัยเรียน" value={legalFirst} setValue={setLegalFirst} />
+              <Field label="นามสกุลสมัยเรียน" value={legalLast} setValue={setLegalLast} />
             </div>
+            <small className="name-help">หากสะกดผิดสามารถแก้ไขได้เลย</small>
+
+            <h3 className="section-title">ชื่อ-นามสกุล (กรณีเปลี่ยนชื่อนามสกุล)</h3>
             <p className="name-help">หากเปลี่ยนชื่อหรือนามสกุลแล้ว กรอกชื่อปัจจุบันที่ต้องการให้ปรากฏในหนังสือได้เลย</p>
             <div className="two-fields">
-              <Field label="ชื่อที่ใช้ในหนังสือ" value={firstName} setValue={setFirstName} />
-              <Field label="นามสกุลที่ใช้ในหนังสือ" value={lastName} setValue={setLastName} />
+              <Field label="ชื่อปัจจุบัน" value={firstName} setValue={setFirstName} />
+              <Field label="นามสกุลปัจจุบัน" value={lastName} setValue={setLastName} />
             </div>
             {nameChangedFromLegal && (
               <div className="info">
-                ระบบจะบันทึกเพิ่มว่าท่านเปลี่ยนเป็น “{firstName} {lastName}” โดยยังเก็บ
-                “{alum?.legalFirstName} {alum?.legalLastName}” ไว้เป็นชื่อสมัยเรียนตามเดิม
+                ระบบจะบันทึกเพิ่มว่าท่านเปลี่ยนเป็น "{firstName} {lastName}" โดยยังเก็บ
+                "{legalFirst} {legalLast}" ไว้เป็นชื่อสมัยเรียนตามเดิม
               </div>
             )}
             {alum?.nameHistory?.length > 0 && (
@@ -525,6 +619,26 @@ export function Yearbook() {
             </div>
           )}
           {photoWarning && <div className="photo-warning">{photoWarning}</div>}
+          {(photoPreviewUrl || alum?.photo?.downloadUrl) && photoChoice === "upload" && (
+            <div className="yearbook-preview">
+              <p className="yearbook-preview-title">ตัวอย่างการแสดงผลในหนังสือรุ่น</p>
+              <div className="yearbook-grid">
+                {[
+                  { name: "สมชาย ใจดี", placeholder: true },
+                  { name: `${firstName || legalFirst} ${lastName || legalLast}`, src: photoPreviewUrl || alum?.photo?.downloadUrl, highlight: true },
+                  { name: "วรรณา เรืองรอง", placeholder: true },
+                  { name: "ปิยะนุช วัฒนกุล", placeholder: true },
+                ].map((item, i) => (
+                  <div key={i} className={`yearbook-cell${item.highlight ? " highlight" : ""}`}>
+                    <div className="yearbook-photo">
+                      {item.src ? <img src={item.src} alt="" /> : <div className="yearbook-placeholder" />}
+                    </div>
+                    <span className="yearbook-name">{item.name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <h3 className="contact-title">เลือกช่องทางติดต่อที่ต้องการแสดง</h3>
           <p className="contact-help">เลือกได้มากกว่า 1 ช่องทาง หรือเลือกไม่แสดงข้อมูลติดต่อ</p>
           <div className="contact-options">
@@ -554,18 +668,22 @@ export function Yearbook() {
               inputMode={contact.type === "phone" ? "tel" : "text"}
             />
           ))}
-          <button className="next" disabled={!firstName.trim() || !lastName.trim()} onClick={() => move(5)}>ตรวจสอบข้อมูล <ArrowRight /></button>
-          <button className="back" onClick={() => move(3)}><ChevronLeft /> ย้อนกลับ</button>
+          <button className="next" disabled={!firstName.trim() || !lastName.trim()} onClick={() => { saveDraft(); move(4); }}>ตรวจสอบข้อมูล <ArrowRight /></button>
+          <button className="draft" onClick={() => run(async () => { await saveDraft(); setDraftSaved(true); setTimeout(() => setDraftSaved(false), 2500); })}>บันทึก Draft</button>
+          <button className="back" onClick={() => move(2)}><ChevronLeft /> ย้อนกลับ</button>
         </section>
       )}
 
-      {step === 5 && (
+      {step === 4 && (
         <section className="screen">
           <p className="kicker">ยืนยันก่อนส่ง</p>
           <h2>ตรวจสอบข้อมูลของท่าน</h2>
           <div className="review">
-            <Review label="ชื่อในหนังสือ" value={`${firstName} ${lastName}`} />
-            {nameChangedFromLegal && <Review label="ชื่อสมัยเรียน (เก็บไว้)" value={`${alum?.legalFirstName} ${alum?.legalLastName}`} />}
+            {nameChangedFromLegal
+              ? <Review label="ชื่อในหนังสือ" value={`${firstName} ${lastName} (ชื่อเดิม ${legalFirst} ${legalLast})`} />
+              : <Review label="ชื่อในหนังสือ" value={`${firstName} ${lastName}`} />
+            }
+            {legalNameCorrected && <Review label="แก้ชื่อสมัยเรียน" value={`แก้เป็น ${legalFirst} ${legalLast}`} />}
             <Review label="รูปภาพ" value={photoChoice === "placeholder" ? "ไม่แสดงรูป ใช้ภาพคณะแทน" : photo?.name || (alum?.photo?.downloadUrl ? "ใช้รูปเดิมที่เคยส่งไว้" : "ยังไม่ได้เลือกรูป")} />
             {editing && alum?.photo?.downloadUrl && !photo && photoChoice === "upload" && (
               <div className="existing-photo">
@@ -574,16 +692,17 @@ export function Yearbook() {
               </div>
             )}
             <Review label="ช่องทางติดต่อ" value={selectedContactDetails.length ? selectedContactDetails.map((item) => `${item.label}: ${item.value}`).join(" | ") : "ไม่ประสงค์แสดง"} />
-            <Review label="ประวัติโดยย่อ" value={bio || "ไม่ระบุ"} />
+            <Review label="เคยเป็นอาจารย์ที่คณะ" value={wasFaculty ? `ใช่ — ${facultyTitle || "ไม่ระบุตำแหน่ง"}` : "ไม่ใช่"} />
+            <Review label="ปีการศึกษาที่เข้า" value={entryYear === "unknown" ? "จำไม่ได้" : (entryYear || "ไม่ระบุ")} />
+            <Review label="ศิษย์เก่าดีเด่น" value={outstandingAlumni ? `ใช่ — ${outstandingYear === "n/a" ? "จำไม่ได้" : `พ.ศ. ${outstandingYear || "ไม่ระบุปี"}`}` : "ไม่ใช่"} />
           </div>
           <div className="pdpa">
-            <h3>การให้ความยินยอมในการเปิดเผยข้อมูลส่วนบุคคล</h3>
-            <p>ข้าพเจ้ายินยอมให้เปิดเผยชื่อ นามสกุล ภาพถ่าย (ถ้ามี) และช่องทางติดต่อ (ถ้ามี) ในหนังสืออนุสรณ์ สภจ. 2569</p>
-            <div>
-              <button className={pdpa === "yes" ? "consent yes" : "consent"} onClick={() => setPdpa("yes")}><Check /> ยินยอม</button>
-              <button className={pdpa === "no" ? "consent no" : "consent"} onClick={() => setPdpa("no")}><X /> ไม่ยินยอม</button>
-            </div>
-            {pdpa === "no" && <p className="decline-copy">หากไม่ยินยอม ระบบจะไม่บันทึกข้อมูลเพื่อใช้ในหนังสืออนุสรณ์</p>}
+            <h3>การให้ความยินยอมในการเปิดเผยข้อมูลส่วนบุคคล (PDPA)</h3>
+            <p>ข้าพเจ้ายินยอมให้สมาคมนิสิตเก่าคณะเภสัชศาสตร์ จุฬาลงกรณ์มหาวิทยาลัย เก็บรวบรวม ใช้ และเปิดเผยชื่อ-นามสกุล ภาพถ่าย ประวัติโดยย่อ และช่องทางติดต่อ (เฉพาะที่ข้าพเจ้าเลือกเปิดเผย) ในหนังสืออนุสรณ์ สภจ. 2569 ข้อมูลจะถูกเก็บตลอดระยะเวลาการจัดทำและเผยแพร่หนังสือ และจะถูกลบเมื่อสิ้นสุดวัตถุประสงค์ ท่านสามารถถอนความยินยอมได้โดยติดต่อผู้ประสานงานหรือตัวแทนรุ่น</p>
+            <label className="confirm-field">
+              <span>พิมพ์ <strong>ยืนยันข้อมูล</strong> เพื่อยืนยันว่าข้อมูลข้างต้นถูกต้องและท่านยินยอมให้เผยแพร่</span>
+              <input type="text" value={pdpa} onChange={(e) => setPdpa(e.target.value)} placeholder="พิมพ์ ยืนยันข้อมูล" autoComplete="off" />
+            </label>
           </div>
           {uploadStage && (
             <div className="upload-status">
@@ -595,20 +714,20 @@ export function Yearbook() {
             </div>
           )}
           <form onSubmit={submit}>
-            <button className="submit" disabled={busy || pdpa !== "yes"}>
+            <button className="submit" disabled={busy || pdpa !== "ยืนยันข้อมูล"}>
               {busy ? "กำลังส่งข้อมูล…" : <>{editing ? "บันทึกการแก้ไข" : "ยืนยันและส่งข้อมูล"} <Check /></>}
             </button>
           </form>
-          <button className="back" onClick={() => move(4)}><ChevronLeft /> ย้อนกลับ</button>
+          <button className="back" onClick={() => move(3)}><ChevronLeft /> ย้อนกลับ</button>
         </section>
       )}
 
-      {step === 8 && alum && (
+      {step === 7 && alum && (
         <section className="screen compact">
           <p className="kicker">ยืนยันความประสงค์</p>
           <h2>ไม่ประสงค์ลงหนังสืออนุสรณ์</h2>
           <div className="identity">
-            <span>{alum.legalFirstName} {alum.legalLastName}</span>
+            <span>{legalFirst} {legalLast}</span>
             <small>รุ่น {alum.batch}</small>
           </div>
 
@@ -634,13 +753,13 @@ export function Yearbook() {
           <button className="decline-confirm" disabled={busy} onClick={confirmDecline}>
             {busy ? "กำลังบันทึก…" : <>ยืนยันไม่ประสงค์ลงหนังสือ <Check /></>}
           </button>
-          <button className="back" onClick={() => { setIntent("yes"); move(3); }}>
+          <button className="back" onClick={() => { setIntent("yes"); move(2); }}>
             <ChevronLeft /> เปลี่ยนใจ ขอส่งข้อมูลแทน
           </button>
         </section>
       )}
 
-      {step === 7 && (
+      {step === 6 && (
         <section className="screen thank">
           <h1>ขอบพระคุณครับ</h1>
           <p>
@@ -649,6 +768,15 @@ export function Yearbook() {
           </p>
           <a href="/">กลับสู่หน้าแรก</a>
         </section>
+      )}
+      {draftSaved && (
+        <div className="draft-popup-overlay" onClick={() => setDraftSaved(false)}>
+          <div className="draft-popup" onClick={(e) => e.stopPropagation()}>
+            <div className="draft-popup-icon"><Check /></div>
+            <p>บันทึกร่างเรียบร้อย</p>
+            <small>ข้อมูลถูกบันทึกร่างไว้แล้ว เมื่อกลับมาอีกครั้งจะพบข้อมูลที่เคยกรอกไว้</small>
+          </div>
+        </div>
       )}
     </Shell>
   );

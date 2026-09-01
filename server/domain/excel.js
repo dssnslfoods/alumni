@@ -1,14 +1,16 @@
 import { Readable } from "node:stream";
 import ExcelJS from "exceljs";
+import XLSX from "xlsx";
 import { config } from "../lib/env.js";
 import { bulkSet, getDocsByIds, setDoc } from "../lib/db.js";
-import { newId } from "../lib/crypto.js";
+import { generateVerificationCode, newId } from "../lib/crypto.js";
 import { badRequest } from "../lib/http.js";
 import { effectiveMaxBatch } from "./settings.js";
 import {
   FOLLOW_UP_STATES,
   alumniId,
   defaultSubmissionFields,
+  entryYearFromStudentId,
   normalizeText,
   onlyDigits,
   parseBatch,
@@ -22,16 +24,9 @@ const { alumni: ALUMNI, importJobs: IMPORT_JOBS } = config.collections;
 export const COLUMN_ALIASES = {
   firstName: ["ชื่อ", "ชื่อจริง", "ชื่อสมัยเรียน", "firstname", "first name", "given name", "name"],
   lastName: ["นามสกุล", "นามสกุลสมัยเรียน", "สกุล", "lastname", "last name", "surname", "family name"],
-  batch: ["รุ่น", "รุ่นที่", "batch", "class", "year"],
-  studentId: ["รหัสนิสิต", "รหัสประจำตัวนิสิต", "student id", "studentid", "student code"],
-  idCardLast5: [
-    "เลขท้ายบัตรประชาชน 5 หลัก",
-    "เลขท้ายบัตรประชาชน",
-    "เลขบัตรประชาชน 5 หลักท้าย",
-    "id card last 5",
-    "idcardlast5",
-    "national id last 5"
-  ],
+  batch: ["รุ่น", "รุ่นที่", "batch", "class"],
+  entryYear: ["ปีที่เข้าศึกษา", "ปีเข้า", "entry year", "entryyear"],
+  studentId: ["เลขประจำตัวนิสิต", "รหัสนิสิต", "รหัสประจำตัวนิสิต", "student id", "studentid", "student code"],
   title: ["คำนำหน้า", "คำนำหน้าชื่อ", "title", "prefix"],
   currentFirstName: ["ชื่อปัจจุบัน", "ชื่อปัจจุบัน (ถ้าทราบ)", "current firstname", "current first name"],
   currentLastName: ["นามสกุลปัจจุบัน", "นามสกุลปัจจุบัน (ถ้าทราบ)", "current lastname", "current last name"],
@@ -39,6 +34,19 @@ export const COLUMN_ALIASES = {
   outreachPhone: ["เบอร์โทรสำหรับติดต่อ", "เบอร์โทร", "โทรศัพท์", "phone", "mobile", "tel"],
   note: ["หมายเหตุ", "note", "remark", "comment"]
 };
+
+/** Extract batch number from filename like "82-2563.xlsx" → 82 */
+export function parseBatchFromFilename(filename) {
+  const match = String(filename || "").match(/^(\d+)\s*[-–_.]/);
+  return match ? parseBatch(match[1]) : null;
+}
+
+/** Generate a 10-digit student ID from batch and sequence: YY + 8-digit padded seq */
+function generateStudentId(batch, seq) {
+  const entryYear = 2481 + batch;
+  const yy = String(entryYear % 100).padStart(2, "0");
+  return `${yy}${String(seq).padStart(8, "0")}`;
+}
 
 function cellText(value) {
   if (value == null) return "";
@@ -52,20 +60,27 @@ function cellText(value) {
   return String(value);
 }
 
+/** Convert legacy .xls (BIFF) buffer to .xlsx buffer so ExcelJS can read it. */
+function convertXlsToXlsx(buffer) {
+  const wb = XLSX.read(buffer, { type: "buffer" });
+  return Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+}
+
 /** Read the first worksheet into `{header: value}` rows. */
 export async function readWorkbookRows(buffer, filename = "") {
   const workbook = new ExcelJS.Workbook();
   const isCsv = /\.csv$/i.test(filename);
+  const isXls = /\.xls$/i.test(filename);
   try {
     if (isCsv) await workbook.csv.read(Readable.from(buffer));
+    else if (isXls) await workbook.xlsx.load(convertXlsToXlsx(buffer));
     else await workbook.xlsx.load(buffer);
   } catch (error) {
-    // ExcelJS surfaces low-level zip errors that mean nothing to an administrator.
     const looksCorrupt = /zip|central directory|end of data/i.test(error.message || "");
     throw badRequest(
       looksCorrupt
         ? "ไฟล์นี้ไม่ใช่ไฟล์ Excel ที่สมบูรณ์ หากบันทึกมาจากโปรแกรมอื่น ให้เปิดด้วย Excel หรือ Google Sheets แล้วบันทึกใหม่เป็น .xlsx"
-        : "อ่านไฟล์ไม่สำเร็จ กรุณาตรวจสอบว่าเป็นไฟล์ .xlsx หรือ .csv ที่ถูกต้องและไม่ได้ตั้งรหัสผ่านไว้",
+        : "อ่านไฟล์ไม่สำเร็จ กรุณาตรวจสอบว่าเป็นไฟล์ .xls, .xlsx หรือ .csv ที่ถูกต้องและไม่ได้ตั้งรหัสผ่านไว้",
       { reason: error.message }
     );
   }
@@ -96,12 +111,12 @@ function pick(row, aliases) {
   return key ? normalizeText(row[key]) : "";
 }
 
-export function mapRow(row) {
+export function mapRow(row, { filenameBatch, rowIndex } = {}) {
   const firstName = pick(row, COLUMN_ALIASES.firstName);
   const lastName = pick(row, COLUMN_ALIASES.lastName);
-  const batch = parseBatch(pick(row, COLUMN_ALIASES.batch));
-  const studentId = onlyDigits(pick(row, COLUMN_ALIASES.studentId));
-  const idCardLast5 = onlyDigits(pick(row, COLUMN_ALIASES.idCardLast5)).slice(-5);
+  const batch = parseBatch(pick(row, COLUMN_ALIASES.batch)) ?? filenameBatch;
+  let studentId = onlyDigits(pick(row, COLUMN_ALIASES.studentId));
+  const entryYearRaw = pick(row, COLUMN_ALIASES.entryYear);
   const title = pick(row, COLUMN_ALIASES.title);
   const currentFirstName = pick(row, COLUMN_ALIASES.currentFirstName);
   const currentLastName = pick(row, COLUMN_ALIASES.currentLastName);
@@ -112,14 +127,14 @@ export function mapRow(row) {
   const errors = [];
   if (!firstName) errors.push("ไม่มีชื่อ");
   if (!lastName) errors.push("ไม่มีนามสกุล");
-  if (batch === null) errors.push(`รุ่นไม่ถูกต้อง (ต้องเป็น 1-${effectiveMaxBatch()})`);
-  if (idCardLast5.length !== 5) errors.push("เลขท้ายบัตรประชาชนต้องมี 5 หลัก");
+  if (batch === null) errors.push(`รุ่นไม่ถูกต้อง (ต้องเป็น 1-${effectiveMaxBatch()} หรือระบุในชื่อไฟล์ เช่น 82-2563.xlsx)`);
   if (errors.length) return { ok: false, rowNumber: row.__row, errors };
 
   const warnings = [];
-  if (!studentId) warnings.push("ไม่มีรหัสนิสิต — ระบบจะสร้างรหัสระเบียนจากชื่อและรุ่นแทน");
-  else if (studentId.length !== 10) warnings.push(`รหัสนิสิตควรเป็น 10 หลัก (XX34XXXXXX) แต่ได้ ${studentId.length} หลัก — ระบบยังรับเข้าได้`);
-  else if (studentId.slice(2, 4) !== "34") warnings.push(`รหัสนิสิตหลักที่ 3-4 ควรเป็น 34 (คณะเภสัชศาสตร์) แต่ได้ ${studentId.slice(2, 4)} — ระบบยังรับเข้าได้`);
+  if (!studentId && batch) {
+    studentId = generateStudentId(batch, rowIndex || row.__row);
+    warnings.push(`ไม่มีรหัสนิสิต — ระบบสร้างให้อัตโนมัติ: ${studentId}`);
+  }
   if (outreachEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(outreachEmail)) warnings.push("รูปแบบอีเมลไม่ถูกต้อง จึงไม่บันทึกอีเมล");
 
   return {
@@ -131,7 +146,6 @@ export function mapRow(row) {
       lastName,
       batch,
       studentId,
-      idCardLast5,
       title,
       currentFirstName,
       currentLastName,
@@ -153,7 +167,8 @@ export async function parseImportWorkbook({ buffer, filename }) {
   const { headers, rows } = await readWorkbookRows(buffer, filename);
   if (!rows.length) throw badRequest("ไม่พบแถวข้อมูลในไฟล์");
 
-  const mapped = rows.map(mapRow);
+  const filenameBatch = parseBatchFromFilename(filename);
+  const mapped = rows.map((row, index) => mapRow(row, { filenameBatch, rowIndex: index + 1 }));
   const invalid = mapped.filter((item) => !item.ok);
   const valid = mapped.filter((item) => item.ok);
   if (!valid.length) {
@@ -198,7 +213,6 @@ export function validateImportValue(raw) {
     lastName: normalizeText(raw?.lastName),
     batch: parseBatch(raw?.batch),
     studentId: onlyDigits(raw?.studentId),
-    idCardLast5: onlyDigits(raw?.idCardLast5).slice(-5),
     title: normalizeText(raw?.title),
     currentFirstName: normalizeText(raw?.currentFirstName),
     currentLastName: normalizeText(raw?.currentLastName),
@@ -206,7 +220,7 @@ export function validateImportValue(raw) {
     outreachPhone: onlyDigits(raw?.outreachPhone),
     note: normalizeText(raw?.note).slice(0, 300)
   };
-  if (!value.firstName || !value.lastName || value.batch === null || value.idCardLast5.length !== 5) return null;
+  if (!value.firstName || !value.lastName || value.batch === null) return null;
   return value;
 }
 
@@ -221,11 +235,17 @@ export async function writeImportRows({ entries, actor, jobId, filename }) {
 
   const existing = await getDocsByIds(ALUMNI, [...byId.keys()]);
   const now = new Date().toISOString();
+
+  const seqCounters = new Map();
+  const nextSeq = (entryYear) => {
+    const current = (seqCounters.get(entryYear) || 0) + 1;
+    seqCounters.set(entryYear, current);
+    return current;
+  };
+
   const documents = [...byId.entries()].map(([id, item]) => {
     const previous = existing.get(id);
 
-    // The "ชื่อปัจจุบัน" columns only seed records the alumnus has not filled in
-    // yet. Once someone has submitted, their own answer always wins over the sheet.
     const untouched = !previous || previous.status === "pending";
     const seededName = untouched && (item.value.currentFirstName || item.value.currentLastName)
       ? {
@@ -234,11 +254,16 @@ export async function writeImportRows({ entries, actor, jobId, filename }) {
         }
       : {};
 
+    const ref = referenceFields(item.value);
+    const entryYear = ref.entryYear || (2481 + item.value.batch);
+    const verificationCode = generateVerificationCode(entryYear, nextSeq(entryYear));
+
     return {
       id,
       data: {
         ...(previous ? {} : defaultSubmissionFields(item.value)),
-        ...referenceFields(item.value),
+        verificationCode,
+        ...ref,
         ...seededName,
         createdAt: previous?.createdAt || now,
         updatedAt: now,
@@ -274,7 +299,7 @@ export async function importAlumniWorkbook({ buffer, filename, actor, dryRun = f
 
   // A dry run still needs accurate insert/update counts, so look the ids up.
   const counts = dryRun
-    ? await previewCounts(entries)
+    ? await previewImportCounts(entries)
     : written;
 
   const inserted = counts.inserted;
@@ -303,7 +328,7 @@ export async function importAlumniWorkbook({ buffer, filename, actor, dryRun = f
 }
 
 /** Insert/update split for a dry run, without writing anything. */
-async function previewCounts(entries) {
+export async function previewImportCounts(entries) {
   const ids = entries.map((entry) => {
     const value = validateImportValue(entry?.value);
     return value ? alumniId(value) : "";
@@ -317,21 +342,33 @@ async function previewCounts(entries) {
 
 const EXPORT_COLUMNS = [
   ["รหัสระเบียน", (record) => record.id],
-  ["รหัสนิสิต", (record) => record.studentId || ""],
+  ["เลขประจำตัวนิสิต", (record) => record.studentId || ""],
   ["รุ่น", (record) => record.batch],
+  ["ปีที่เข้าศึกษา", (record) => record.entryYear || ""],
+  ["รหัสยืนยันตัวตน", (record) => record.verificationCode || ""],
+  ["คำนำหน้า", (record) => record.title || ""],
   ["ชื่อสมัยเรียน", (record) => record.legalFirstName],
   ["นามสกุลสมัยเรียน", (record) => record.legalLastName],
-  ["ชื่อที่ใช้ในหนังสือ", (record) => record.currentFirstName || ""],
-  ["นามสกุลที่ใช้ในหนังสือ", (record) => record.currentLastName || ""],
-  ["ประวัติการเปลี่ยนชื่อ", (record) => (record.nameHistory || []).map((item) => item.fullName).join("; ")],
+  ["ชื่อเดิมจากฐานข้อมูล", (record) => record.importedFirstName || ""],
+  ["นามสกุลเดิมจากฐานข้อมูล", (record) => record.importedLastName || ""],
+  ["ชื่อปัจจุบัน", (record) => record.currentFirstName || ""],
+  ["นามสกุลปัจจุบัน", (record) => record.currentLastName || ""],
+  ["ประวัติการเปลี่ยนชื่อ", (record) => {
+    const changed = record.currentFirstName && record.currentLastName
+      && (record.currentFirstName !== record.legalFirstName || record.currentLastName !== record.legalLastName);
+    return changed ? "Y" : "";
+  }],
+  ["ประวัติการแก้ชื่อ", (record) => record.importedFirstName ? "Y" : ""],
   ["สถานะ", (record) => ({ submitted: "ยืนยันลงหนังสือ", declined: "ไม่ประสงค์ลงหนังสือ", pending: "ยังไม่ตอบ" }[record.status] || record.status)],
   ["รูปภาพ", (record) => (record.photo?.choice === "upload" ? "ส่งรูปแล้ว" : record.photo?.choice === "placeholder" ? "ใช้ภาพคณะแทน" : "")],
   ["ลิงก์รูปภาพ", (record) => record.photo?.downloadUrl || ""],
-  ["Facebook", (record) => (record.contacts || []).find((contact) => contact.type === "facebook")?.value || ""],
-  ["Instagram", (record) => (record.contacts || []).find((contact) => contact.type === "instagram")?.value || ""],
+  ["อีเมล", (record) => (record.contacts || []).find((contact) => contact.type === "email")?.value || ""],
   ["LINE", (record) => (record.contacts || []).find((contact) => contact.type === "line")?.value || ""],
   ["โทรศัพท์", (record) => (record.contacts || []).find((contact) => contact.type === "phone")?.value || ""],
-  ["ประวัติโดยย่อ", (record) => record.bio || ""],
+  ["เคยเป็นอาจารย์", (record) => record.wasFaculty ? "ใช่" : ""],
+  ["ตำแหน่งทางวิชาการ", (record) => record.facultyTitle || ""],
+  ["ศิษย์เก่าดีเด่น", (record) => record.outstandingAlumni ? "ใช่" : ""],
+  ["ปี พ.ศ. ที่ได้รับ", (record) => record.outstandingYear === "n/a" ? "จำไม่ได้" : (record.outstandingYear || "")],
   ["สถานะติดตาม", (record) => FOLLOW_UP_STATES[record.followUp?.state || "none"]?.label || ""],
   ["บันทึกการติดตาม", (record) => record.followUp?.note || ""],
   ["ผู้บันทึกติดตาม", (record) => record.followUp?.updatedBy || ""],
@@ -375,17 +412,18 @@ export async function buildExportWorkbook(records, { includeOutreach = false } =
  * `required` drives the header colour and the instruction sheet.
  */
 const TEMPLATE_COLUMNS = [
-  { header: "คำนำหน้า", width: 12, required: false, text: false, purpose: "คำนำหน้าชื่อสมัยเรียน เช่น นาย นางสาว", example: "นาย" },
-  { header: "ชื่อ", width: 20, required: true, text: false, purpose: "ชื่อจริง “สมัยเรียน” ใช้ให้นิสิตเก่าค้นหาตัวเอง", example: "สมชาย" },
-  { header: "นามสกุล", width: 22, required: true, text: false, purpose: "นามสกุล “สมัยเรียน” ใช้ให้นิสิตเก่าค้นหาตัวเอง", example: "ใจดี" },
-  { header: "รุ่น", width: 8, required: true, text: false, purpose: `ตัวเลข 1-${effectiveMaxBatch()} ใช้กรองก่อนค้นหาชื่อเสมอ`, example: 45 },
-  { header: "รหัสนิสิต", width: 16, required: false, text: true, purpose: "10 หลัก รูปแบบ XX34XXXXXX (ปีเข้าศึกษา+รหัสคณะ 34+ลำดับ) แนะนำอย่างยิ่ง — ทำให้นำเข้าไฟล์ซ้ำเป็นการอัปเดต ไม่สร้างข้อมูลซ้ำ", example: "2834000001" },
-  { header: "เลขท้ายบัตรประชาชน 5 หลัก", width: 26, required: true, text: true, purpose: "ใช้ยืนยันตัวตน เก็บแบบเข้ารหัสทางเดียว ไม่ปรากฏในหนังสือหรือไฟล์ส่งออก", example: "12345" },
-  { header: "ชื่อปัจจุบัน", width: 20, required: false, text: false, purpose: "ถ้าสมาคมทราบว่าเปลี่ยนชื่อแล้ว ระบบจะเติมให้ล่วงหน้า (เจ้าตัวแก้ได้)", example: "สมชาย" },
-  { header: "นามสกุลปัจจุบัน", width: 22, required: false, text: false, purpose: "เช่นเดียวกับชื่อปัจจุบัน — จะไม่ทับข้อมูลที่เจ้าตัวกรอกเองแล้ว", example: "ใจงาม" },
-  { header: "อีเมลสำหรับติดต่อ", width: 26, required: false, text: false, purpose: "สำหรับผู้ดูแลใช้ติดตามให้มากรอกข้อมูล ไม่ลงหนังสือ", example: "somchai@example.com" },
-  { header: "เบอร์โทรสำหรับติดต่อ", width: 20, required: false, text: true, purpose: "สำหรับผู้ดูแลใช้ติดตาม ไม่ลงหนังสือ", example: "0812345678" },
-  { header: "หมายเหตุ", width: 30, required: false, text: false, purpose: "บันทึกภายใน เช่น ติดต่อไม่ได้ / ย้ายต่างประเทศ", example: "ตัวแทนรุ่นยืนยันข้อมูลแล้ว" }
+  { header: "เลขประจำตัวนิสิต", width: 18, required: false, text: true, purpose: "10 หลัก 2 หลักแรกคือปีที่เข้าศึกษา เช่น 6330001233 = เข้าปี 2563 — ถ้าไม่มี ระบบสร้างให้จากรุ่นในชื่อไฟล์", example: "6330001233" },
+  { header: "คำนำหน้า", width: 12, required: false, text: false, purpose: "คำนำหน้าชื่อสมัยเรียน เช่น นาย นางสาว", example: "นางสาว" },
+  { header: "ชื่อ", width: 20, required: true, text: false, purpose: "ชื่อจริงสมัยเรียน ใช้ให้นิสิตเก่าค้นหาตัวเอง", example: "กนกรักษ์" },
+  { header: "นามสกุล", width: 22, required: true, text: false, purpose: "นามสกุลสมัยเรียน ใช้ให้นิสิตเก่าค้นหาตัวเอง", example: "วัฒนศีลวัต" },
+  { header: "รุ่น", width: 8, required: false, text: false, purpose: `ตัวเลข 1-${effectiveMaxBatch()} ถ้าไม่มีคอลัมน์นี้ ระบบใช้จากชื่อไฟล์ (เช่น 82-2563.xlsx = รุ่น 82)`, example: 82 },
+  { header: "ปีที่เข้าศึกษา", width: 16, required: false, text: false, purpose: "พ.ศ. ที่เข้าศึกษา ระบบคำนวณอัตโนมัติจากรุ่นหรือรหัสนิสิต ไม่จำเป็นต้องกรอก", example: 2563 },
+  { header: "รหัสยืนยันตัวตน", width: 16, required: false, text: true, purpose: "ระบบสร้างอัตโนมัติเมื่อนำเข้า รูปแบบ: ปีเข้า+ลำดับ 3 หลัก เช่น 2563001 ดูได้ในไฟล์ส่งออก", example: "2563001" },
+  { header: "ชื่อปัจจุบัน", width: 20, required: false, text: false, purpose: "ถ้าสมาคมทราบว่าเปลี่ยนชื่อแล้ว ระบบจะเติมให้ล่วงหน้า (เจ้าตัวแก้ได้)", example: "" },
+  { header: "นามสกุลปัจจุบัน", width: 22, required: false, text: false, purpose: "เช่นเดียวกับชื่อปัจจุบัน — จะไม่ทับข้อมูลที่เจ้าตัวกรอกเองแล้ว", example: "" },
+  { header: "อีเมลสำหรับติดต่อ", width: 26, required: false, text: false, purpose: "สำหรับผู้ดูแลใช้ติดตามงานเท่านั้น ไม่ลงหนังสือ", example: "" },
+  { header: "เบอร์โทรสำหรับติดต่อ", width: 20, required: false, text: true, purpose: "สำหรับผู้ดูแลใช้ติดตาม ไม่ลงหนังสือ", example: "" },
+  { header: "หมายเหตุ", width: 30, required: false, text: false, purpose: "บันทึกภายใน เช่น ติดต่อไม่ได้ / ย้ายต่างประเทศ", example: "" }
 ];
 
 const HEADER_REQUIRED = "FFE8D7A8";
@@ -444,25 +482,25 @@ export async function buildImportTemplate({ rows = [] } = {}) {
     error: `กรุณากรอกรุ่นเป็นตัวเลข 1 ถึง ${effectiveMaxBatch()}`
   });
 
-  const idLetter = columnLetter("เลขท้ายบัตรประชาชน 5 หลัก");
-  sheet.dataValidations.add(`${idLetter}2:${idLetter}${lastRow}`, {
-    type: "textLength",
-    operator: "equal",
-    formulae: [5],
+  sheet.dataValidations.add(`${columnLetter("ปีที่เข้าศึกษา")}2:${columnLetter("ปีที่เข้าศึกษา")}${lastRow}`, {
+    type: "whole",
+    operator: "between",
+    formulae: [2482, 2481 + effectiveMaxBatch()],
     allowBlank: true,
     showErrorMessage: true,
-    errorTitle: "เลขท้ายบัตรประชาชนไม่ถูกต้อง",
-    error: "ต้องเป็นตัวเลข 5 หลักพอดี หากขึ้นต้นด้วย 0 ให้จัดรูปแบบเซลล์เป็นข้อความ"
+    errorTitle: "ปีที่เข้าศึกษาไม่ถูกต้อง",
+    error: `พ.ศ. ที่เข้าศึกษา เช่น 2563 (ระบบคำนวณอัตโนมัติจากรุ่น)`
   });
-  const sidLetter = columnLetter("รหัสนิสิต");
+
+  const sidLetter = columnLetter("เลขประจำตัวนิสิต");
   sheet.dataValidations.add(`${sidLetter}2:${sidLetter}${lastRow}`, {
     type: "textLength",
     operator: "equal",
     formulae: [10],
     allowBlank: true,
     showErrorMessage: true,
-    errorTitle: "รหัสนิสิตไม่ถูกต้อง",
-    error: "รหัสนิสิตต้องเป็นตัวเลข 10 หลัก รูปแบบ XX34XXXXXX (เช่น 2834000001) หากขึ้นต้นด้วย 0 ให้จัดรูปแบบเซลล์เป็นข้อความ"
+    errorTitle: "เลขประจำตัวนิสิตไม่ถูกต้อง",
+    error: "ต้องเป็นตัวเลข 10 หลัก เช่น 6330001233 (2 หลักแรก = ปีที่เข้าศึกษา)"
   });
   sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: TEMPLATE_COLUMNS.length } };
 
@@ -480,12 +518,13 @@ function buildInstructionSheet(workbook) {
   guide.addRow([]);
 
   [
-    "1. กรอกข้อมูลในชีต “รายชื่อนิสิตเก่า” เท่านั้น หนึ่งคนต่อหนึ่งแถว ห้ามลบหรือแก้ไขแถวหัวตาราง",
-    "2. คอลัมน์พื้นหลังสีเข้มคือคอลัมน์ที่จำเป็น หากขาดข้อมูลระบบจะข้ามแถวนั้นและรายงานให้ทราบ",
+    "1. กรอกข้อมูลในชีต \"รายชื่อนิสิตเก่า\" เท่านั้น หนึ่งคนต่อหนึ่งแถว ห้ามลบหรือแก้ไขแถวหัวตาราง",
+    "2. คอลัมน์ที่จำเป็นคือ ชื่อ และ นามสกุล เท่านั้น — รุ่นระบุจากชื่อไฟล์ได้ (เช่น 82-2563.xlsx = รุ่น 82)",
     "3. ลำดับคอลัมน์สลับกันได้ ระบบอ่านจากชื่อหัวคอลัมน์ และจะไม่สนใจคอลัมน์อื่นที่เพิ่มเข้ามา",
-    `4. “รหัสนิสิต” 10 หลัก รูปแบบ XX34XXXXXX (ปีเข้าศึกษา 2 หลัก + รหัสคณะ 34 + ลำดับ 6 หลัก) ไม่บังคับ แต่แนะนำอย่างยิ่ง`,
-    "5. อัปโหลดที่หน้า /admin แท็บ “นำเข้า / ส่งออก” แล้วกด “ตรวจสอบไฟล์ก่อน” เพื่อดูผลโดยยังไม่บันทึก",
-    "6. นำเข้าไฟล์เดิมซ้ำได้เสมอ ระบบจะอัปเดตข้อมูลอ้างอิงให้ โดยไม่ทับข้อมูลที่นิสิตเก่ากรอกไว้แล้ว"
+    "4. เลขประจำตัวนิสิต 10 หลัก (2 หลักแรก = ปีที่เข้าศึกษา เช่น 63 = พ.ศ. 2563) ถ้าไม่มี ระบบสร้างให้อัตโนมัติ — คอลัมน์ รุ่น และ ปีที่เข้าศึกษา ระบบคำนวณให้โดยอัตโนมัติ",
+    "5. ระบบจะสร้างรหัสยืนยันตัวตนให้อัตโนมัติ (ปีเข้า+ลำดับ 3 หลัก เช่น 2563001) ดูได้ในไฟล์ส่งออก",
+    "6. อัปโหลดที่หน้า /admin แท็บ \"นำเข้า / ส่งออก\" แล้วกด \"ตรวจสอบไฟล์ก่อน\" เพื่อดูผลโดยยังไม่บันทึก",
+    "7. นำเข้าไฟล์เดิมซ้ำได้เสมอ ระบบจะอัปเดตข้อมูลอ้างอิงให้ โดยไม่ทับข้อมูลที่นิสิตเก่ากรอกไว้แล้ว"
   ].forEach((line) => {
     const row = guide.addRow([line]);
     guide.mergeCells(`A${row.number}:D${row.number}`);
@@ -512,7 +551,7 @@ function buildInstructionSheet(workbook) {
   guide.mergeCells(`A${privacy.number}:D${privacy.number}`);
 
   [
-    "• เลขท้ายบัตรประชาชนใช้เพื่อยืนยันตัวตนเท่านั้น ระบบเก็บเป็นค่าเข้ารหัสทางเดียว อ่านย้อนกลับไม่ได้",
+    "• ระบบสร้างรหัสยืนยันตัวตนให้อัตโนมัติ (ปีเข้า+ลำดับ 3 หลัก เช่น 2563001) ใช้สำหรับยืนยันตัวตนนิสิตเก่า",
     "• อีเมลและเบอร์โทรในไฟล์นี้ใช้สำหรับผู้ดูแลติดตามงานเท่านั้น จะไม่ถูกนำไปลงหนังสือ",
     "  ช่องทางติดต่อที่ลงหนังสือคือช่องทางที่นิสิตเก่าเลือกและยินยอมด้วยตนเองในระบบ",
     "• ไฟล์ต้นฉบับนี้มีข้อมูลส่วนบุคคล กรุณาเก็บในที่ปลอดภัยและอย่าส่งต่อโดยไม่จำเป็น"

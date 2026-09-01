@@ -66,12 +66,12 @@ const EMAIL_STEMS = ["somchai", "suda", "kitti", "wanna", "anusorn", "piya", "na
  * year the student entered the university. The Faculty of Pharmaceutical
  * Sciences opened its first cohort (รุ่น 1) in B.E. 2484 (1941 CE).
  *
- * batch 1  → B.E. 2484 → "84"
- * batch 45 → B.E. 2528 → "28"
- * batch 82 → B.E. 2565 → "65"
+ * batch 1  → B.E. 2482 → "82"
+ * batch 45 → B.E. 2526 → "26"
+ * batch 82 → B.E. 2563 → "63"
  */
 function entryYearSuffix(batch) {
-  const entryYear = 2483 + batch;
+  const entryYear = 2481 + batch;
   return String(entryYear % 100).padStart(2, "0");
 }
 
@@ -121,8 +121,8 @@ export function generateSampleRows(total = 10000, { seed = 25690816, maxBatch = 
         "ชื่อ": firstName,
         "นามสกุล": pick(SURNAMES),
         "รุ่น": batch,
+        "ปีที่เข้าศึกษา": 2481 + batch,
         "รหัสนิสิต": formatStudentId(batch, sequence),
-        "เลขท้ายบัตรประชาชน 5 หลัก": digits(5),
         "ชื่อปัจจุบัน": changedFirstName ? (isFemale ? pick(FEMALE_NAMES) : pick(MALE_NAMES)) : "",
         "นามสกุลปัจจุบัน": changedSurname ? pick(SURNAMES) : "",
         "อีเมลสำหรับติดต่อ": chance(0.55) ? `${pick(EMAIL_STEMS)}${Math.floor(random() * 900 + 100)}@${pick(EMAIL_DOMAINS)}` : "",

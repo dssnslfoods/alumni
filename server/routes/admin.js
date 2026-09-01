@@ -1,10 +1,11 @@
 import express from "express";
+import { readFile } from "node:fs/promises";
 import { config } from "../lib/env.js";
-import { generatePassword } from "../lib/crypto.js";
+import { generatePassword, generateVerificationCode } from "../lib/crypto.js";
 import { badRequest, forbidden, notFound, route } from "../lib/http.js";
 import { audit } from "../lib/audit.js";
 import { multipartBody } from "../lib/multipart.js";
-import { countDocs, deleteAllDocs, listDocs } from "../lib/db.js";
+import { bulkSet, countDocs, deleteAllDocs, listDocs } from "../lib/db.js";
 import { assertBatchAccess, loadUser, requireAuth, requireFreshPassword, requirePermission } from "../middleware/auth.js";
 import {
   ROLES,
@@ -38,6 +39,7 @@ import {
   saveAlumni,
   syncSubmission,
   validateContacts,
+  resetUserInput,
   validateFollowUp
 } from "../domain/alumni.js";
 import {
@@ -45,6 +47,7 @@ import {
   buildImportTemplate,
   importAlumniWorkbook,
   parseImportWorkbook,
+  previewImportCounts,
   recordImportJob,
   writeImportRows
 } from "../domain/excel.js";
@@ -75,7 +78,7 @@ router.get("/summary", requirePermission("alumni.read"), route(async (req, res) 
     listUsers({ limit: 500 }).then((users) => users.length),
     listDocs(config.collections.importJobs, { orderBy: ["startedAt", "desc"], limit: 5 })
   ]);
-  res.json({ ...summary, userCount, lastImports });
+  res.json({ ...summary, userCount, lastImports, maxBatch: effectiveMaxBatch() });
 }));
 
 /* ------------------------------ user accounts ---------------------------- */
@@ -292,6 +295,16 @@ router.get("/import/template.xlsx", requirePermission("alumni.import"), route(as
   res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").send(Buffer.from(await buildImportTemplate({ rows })));
 }));
 
+const DEMO_FILES = { "82-2563": "82-2563.xlsx", "15-2497": "15-2497.xlsx" };
+
+router.get("/import/demo/:name", requirePermission("alumni.import"), route(async (req, res) => {
+  const entry = DEMO_FILES[req.params.name];
+  if (!entry) throw notFound("ไม่พบไฟล์ตัวอย่าง");
+  const buffer = await readFile(new URL(`../../data/imports/${entry}`, import.meta.url));
+  res.setHeader("Content-Disposition", `attachment; filename=${entry}`);
+  res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").send(buffer);
+}));
+
 router.post("/import", requirePermission("alumni.import"), multipartBody({ maxFiles: 1 }), route(async (req, res) => {
   const file = req.files?.file;
   if (!file?.buffer?.length) throw badRequest("ไม่พบไฟล์ Excel ที่อัปโหลด");
@@ -317,12 +330,13 @@ router.post("/import/prepare", requirePermission("alumni.import"), multipartBody
   const file = req.files?.file;
   if (!file?.buffer?.length) throw badRequest("ไม่พบไฟล์ Excel ที่อัปโหลด");
   const parsed = await parseImportWorkbook({ buffer: file.buffer, filename: file.filename });
+  const counts = await previewImportCounts(parsed.entries);
   await audit(req, "alumni.import.prepare", {
     targetType: "importJob",
     targetId: parsed.jobId,
     meta: { totalRows: parsed.totalRows, validRows: parsed.validRows, skipped: parsed.skipped }
   });
-  res.json({ job: parsed });
+  res.json({ job: { ...parsed, ...counts } });
 }));
 
 /** Step 2 — write one slice. Called repeatedly; each call reports its own counts. */
@@ -466,7 +480,49 @@ router.put("/settings", requirePermission("settings.manage"), route(async (req, 
   res.json({ settings });
 }));
 
+/* ---------------------- regenerate verification codes -------------------- */
+
+router.post("/regenerate-codes", requirePermission("alumni.import"), route(async (req, res) => {
+  const records = await listAllAlumni({});
+  const byYear = new Map();
+  records.forEach((r) => {
+    const year = r.entryYear || (2481 + r.batch);
+    if (!byYear.has(year)) byYear.set(year, []);
+    byYear.get(year).push(r);
+  });
+
+  const documents = [];
+  byYear.forEach((list, year) => {
+    list.forEach((r, i) => {
+      documents.push({ id: r.id, data: { verificationCode: generateVerificationCode(year, i + 1) } });
+    });
+  });
+
+  await bulkSet(config.collections.alumni, documents, { merge: true });
+  await audit(req, "alumni.regenerateCodes", { meta: { total: documents.length, years: [...byYear.keys()].sort() } });
+  res.json({ ok: true, total: documents.length, years: [...byYear.entries()].map(([y, l]) => ({ year: y, count: l.length })) });
+}));
+
 /* ----------------------------- danger zone ------------------------------- */
+
+const RESET_INPUT_PHRASE = "ล้างข้อมูลที่กรอก";
+
+router.post("/reset-input", requirePermission("data.reset"), route(async (req, res) => {
+  if (String(req.body?.confirm || "").trim() !== RESET_INPUT_PHRASE) {
+    throw badRequest(`เพื่อยืนยัน กรุณาพิมพ์ข้อความ "${RESET_INPUT_PHRASE}" ให้ตรงทุกตัวอักษร`);
+  }
+
+  const before = await countDocs(config.collections.alumni);
+  const { alumni } = await resetUserInput();
+  const [submissions, photos] = [
+    await deleteAllDocs(config.collections.submissions),
+    await deleteAllPhotos()
+  ];
+
+  invalidatePublicStats();
+  await audit(req, "data.resetInput", { meta: { alumni, submissions, photos, before } });
+  res.json({ ok: true, reset: { alumni, submissions, photos } });
+}));
 
 const RESET_PHRASE = "ล้างข้อมูลทั้งหมด";
 

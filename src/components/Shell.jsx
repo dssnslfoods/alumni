@@ -2,7 +2,7 @@ export function Shell({ children, wide = false }) {
   return (
     <main className={wide ? "site wide" : "site"}>
       <header>
-        <div className="brand-mark">สภจ.</div>
+        <img className="brand-mark" src="/assets/logo.png" alt="สภจ." />
         <div>
           <strong>สมาคมนิสิตเก่าคณะเภสัชศาสตร์</strong>
           <span>จุฬาลงกรณ์มหาวิทยาลัย</span>

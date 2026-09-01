@@ -12,6 +12,7 @@ import {
   Palette,
   Pencil,
   RefreshCw,
+  RotateCcw,
   Save,
   Settings,
   Trash2,
@@ -146,10 +147,16 @@ function Overview({ user }) {
           <div className="kpi-row">
             <Kpi label="อัตราการตอบกลับ" value={`${data.responseRate}%`} note="ตอบแล้วทั้งยืนยันและปฏิเสธ" />
             <Kpi label="ส่งรูปถ่ายแล้ว" value={`${data.photoRate}%`} note={`${thai(data.withPhoto)} คน · ${(data.photoBytes / 1024 / 1024).toFixed(0)} MB`} />
-            <Kpi label="รุ่นที่มีข้อมูล" value={thai(data.batchesWithData)} note="จากทั้งหมดที่นำเข้า" />
+            <Kpi label="รุ่นที่มีข้อมูล" value={thai(data.batchesWithData)} note={`จากทั้งหมด ${thai(data.maxBatch || 82)} รุ่น`} />
             <Kpi label="เปลี่ยนชื่อ-สกุล" value={thai(data.nameChanged)} note="เทียบกับทะเบียนเดิม" />
           </div>
         </div>
+      </div>
+
+      {/* สถานะการนำเข้ารายรุ่น */}
+      <div className="dash-card">
+        <h4>สถานะการนำเข้าข้อมูลรายรุ่น</h4>
+        <BatchCoverage byBatch={data.byBatch} maxBatch={data.maxBatch || 82} />
       </div>
 
       {/* แนวโน้มรายวัน */}
@@ -167,6 +174,7 @@ function Overview({ user }) {
             items={[
               { label: "มีรูปถ่าย", value: data.withPhoto },
               { label: "มีประวัติโดยย่อ", value: data.withBio },
+              { label: "เคยเป็นอาจารย์", value: data.faculty },
               { label: "มีช่องทางติดต่อ", value: data.withContacts }
             ]}
           />
@@ -323,6 +331,40 @@ function RankList({ items, tone }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+function BatchCoverage({ byBatch, maxBatch }) {
+  const imported = new Set(byBatch.map((item) => item.batch));
+  const missing = [];
+  for (let i = 1; i <= maxBatch; i++) {
+    if (!imported.has(i)) missing.push(i);
+  }
+  return (
+    <div className="batch-coverage">
+      <p className="batch-coverage-summary">
+        นำเข้าแล้ว <strong>{imported.size}</strong> รุ่น จากทั้งหมด {maxBatch} รุ่น
+        {missing.length > 0 && <span> · ขาดอีก <strong>{missing.length}</strong> รุ่น</span>}
+      </p>
+      <div className="batch-coverage-grid">
+        {Array.from({ length: maxBatch }, (_, i) => {
+          const batch = i + 1;
+          const entry = byBatch.find((item) => item.batch === batch);
+          return (
+            <div
+              key={batch}
+              className={`batch-cell${entry ? " imported" : ""}`}
+              title={entry ? `รุ่น ${batch} — ${entry.roster} คน` : `รุ่น ${batch} — ยังไม่ได้นำเข้า`}
+            >
+              {batch}
+            </div>
+          );
+        })}
+      </div>
+      {missing.length > 0 && missing.length <= 20 && (
+        <p className="batch-coverage-missing">รุ่นที่ยังไม่ได้นำเข้า: {missing.join(", ")}</p>
+      )}
+    </div>
   );
 }
 
@@ -530,6 +572,7 @@ function AlumniTable({ user }) {
 
 function ImportExport({ canReset }) {
   const [file, setFile] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
   const [preview, setPreview] = useState(null);
   const [result, setResult] = useState(null);
   const [message, setMessage] = useState("");
@@ -589,7 +632,8 @@ function ImportExport({ canReset }) {
    */
   async function runImport() {
     const job = preview;
-    if (!job) return setMessage("กรุณากด “ตรวจสอบไฟล์ก่อน” ก่อนนำเข้าจริง");
+    if (!job) return setMessage("กรุณากด \"ตรวจสอบไฟล์ก่อน\" ก่อนนำเข้าจริง");
+    if (job.updated > 0 && !confirm(`พบข้อมูลซ้ำ ${job.updated} รายการ — ต้องการนำเข้าและอัปเดตข้อมูลที่ซ้ำหรือไม่?`)) return;
 
     const startedAt = new Date().toISOString();
     const entries = job.entries || [];
@@ -637,7 +681,7 @@ function ImportExport({ canReset }) {
     } catch (error) {
       // Report how far it actually got — the slices already written are saved.
       setProgress((current) => (current ? { ...current, phase: "failed" } : null));
-      setMessage(`${describeError(error)} — บันทึกสำเร็จไปแล้ว ${(inserted + updated).toLocaleString("th-TH")} รายการ สามารถกด “นำเข้าจริง” ซ้ำเพื่อทำต่อได้`);
+      setMessage(`${describeError(error)} — บันทึกสำเร็จไปแล้ว ${(inserted + updated).toLocaleString("th-TH")} รายการ สามารถกด "นำเข้าจริง" ซ้ำเพื่อทำต่อได้`);
     } finally {
       setBusy(false);
     }
@@ -647,10 +691,11 @@ function ImportExport({ canReset }) {
     <div className="panel">
       <h3>นำเข้าฐานรายชื่อจาก Excel</h3>
       <p className="panel-note">
-        คอลัมน์ที่จำเป็น: <strong>ชื่อ, นามสกุล, รุ่น, เลขท้ายบัตรประชาชน 5 หลัก</strong> — แนะนำอย่างยิ่งให้มี <strong>รหัสนิสิต</strong>
-        เพื่อให้การนำเข้าครั้งถัดไปเป็นการอัปเดตระเบียนเดิมแทนการสร้างซ้ำ
+        คอลัมน์ที่จำเป็น: <strong>ชื่อ</strong> และ <strong>นามสกุล</strong> เท่านั้น — รุ่นระบุจากชื่อไฟล์ได้ (เช่น 82-2563.xlsx = รุ่น 82)
         <br />
-        คอลัมน์เพิ่มเติมที่รองรับ: ชื่อปัจจุบัน, นามสกุลปัจจุบัน, อีเมลสำหรับติดต่อ, เบอร์โทรสำหรับติดต่อ, คำนำหน้า และหมายเหตุ
+        ถ้ามีคอลัมน์ <strong>เลขประจำตัวนิสิต</strong> ระบบจะคำนวณปีที่เข้าศึกษาจาก 2 หลักแรก — ถ้าไม่มี ระบบสร้างรหัสให้อัตโนมัติ
+        <br />
+        ระบบจะสร้าง<strong>รหัสยืนยันตัวตน</strong> (ปีเข้า+ลำดับ เช่น 2563001) ให้ทุกคนอัตโนมัติ ดูได้ในไฟล์ส่งออก
         <br />
         ลำดับคอลัมน์สลับกันได้ และ<strong>ข้อมูลที่นิสิตเก่ากรอกไว้แล้วจะไม่ถูกทับ</strong> — กดปุ่มด้านล่างเพื่อดาวน์โหลดไฟล์ต้นแบบพร้อมคำแนะนำการกรอก
       </p>
@@ -659,20 +704,39 @@ function ImportExport({ canReset }) {
         <button className="ghost" onClick={() => download("/api/admin/import/template.xlsx", "แบบฟอร์มรายชื่อนิสิตเก่า.xlsx")}>
           <Download /> ไฟล์ต้นแบบเปล่า (ใช้กรอกข้อมูลจริง)
         </button>
-        <button className="ghost" onClick={() => download("/api/admin/import/template.xlsx?rows=10000", "ตัวอย่างข้อมูลนิสิตเก่า-10000-รายการ.xlsx")}>
-          <Download /> ไฟล์ตัวอย่างพร้อมข้อมูล 10,000 รายการ
+      </div>
+
+      <p className="panel-note" style={{ marginTop: "0.5rem" }}>
+        <strong>ไฟล์ตัวอย่างสำหรับทดลองนำเข้า</strong> — ข้อมูลสมมติ ไม่ใช่ข้อมูลบุคคลจริง
+      </p>
+      <div className="button-row">
+        <button className="ghost" onClick={() => download("/api/admin/import/demo/82-2563", "82-2563.xlsx")}>
+          <Download /> รุ่น 82 (148 รายการ, มีรหัสนิสิต)
+        </button>
+        <button className="ghost" onClick={() => download("/api/admin/import/demo/15-2497", "15-2497.xlsx")}>
+          <Download /> รุ่น 15 (83 รายการ, ไม่มีรหัสนิสิต)
         </button>
       </div>
       <p className="panel-note">
-        ไฟล์ตัวอย่างเป็น<strong>ข้อมูลสมมติทั้งหมด ไม่ใช่ข้อมูลของบุคคลจริง</strong> ใช้ทดลองนำเข้าเพื่อดูว่าระบบทำงานอย่างไรที่ปริมาณจริง
-        เมื่อทดสอบเสร็จให้กด “ล้างข้อมูลทั้งหมด” ด้านล่างก่อนนำเข้าข้อมูลจริง
+        ใช้ทดลองนำเข้าเพื่อดูว่าระบบทำงานอย่างไร — รุ่น 82 มีเลขประจำตัวนิสิต, รุ่น 15 ระบบจะสร้างรหัสให้อัตโนมัติจากชื่อไฟล์
+        เมื่อทดสอบเสร็จให้กด "ล้างข้อมูลทั้งหมด" ด้านล่างก่อนนำเข้าข้อมูลจริง
       </p>
 
-      <label className="file-drop">
+      <label
+        className={`file-drop${dragOver ? " dragover" : ""}`}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          const dropped = e.dataTransfer.files?.[0];
+          if (dropped) { setFile(dropped); setPreview(null); setResult(null); setMessage(""); setProgress(null); }
+        }}
+      >
         <Upload />
-        <strong>{file?.name || "กดเพื่อเลือกไฟล์ .xlsx หรือ .csv"}</strong>
-        <small>ระบบจะตรวจสอบข้อมูลให้ก่อน แล้วจึงยืนยันบันทึกจริง</small>
-        <input type="file" accept=".xlsx,.csv" onChange={(event) => { setFile(event.target.files?.[0] || null); setPreview(null); setResult(null); setMessage(""); setProgress(null); }} />
+        <strong>{file?.name || "ลากไฟล์มาวาง หรือกดเพื่อเลือกไฟล์"}</strong>
+        <small>รองรับ .xls, .xlsx และ .csv — ระบบจะตรวจสอบข้อมูลให้ก่อน แล้วจึงยืนยันบันทึกจริง</small>
+        <input type="file" accept=".xls,.xlsx,.csv" onChange={(event) => { setFile(event.target.files?.[0] || null); setPreview(null); setResult(null); setMessage(""); setProgress(null); }} />
       </label>
 
       <div className="button-row">
@@ -682,14 +746,38 @@ function ImportExport({ canReset }) {
 
       <ProgressBar progress={progress} />
       <Alert>{message}</Alert>
-      {preview && <ImportReport job={preview} title="ผลการตรวจสอบ — ยังไม่บันทึก กด “นำเข้าจริง” เพื่อบันทึก" />}
+      {preview && <ImportReport job={preview} title={"ผลการตรวจสอบ — ยังไม่บันทึก กด \"นำเข้าจริง\" เพื่อบันทึก"} />}
+      {preview && preview.updated > 0 && (
+        <div className="import-warning">
+          <strong>พบข้อมูลซ้ำ {preview.updated.toLocaleString("th-TH")} รายการ</strong>
+          <span>รายชื่อเหล่านี้มีในระบบแล้ว — หากกด "นำเข้าจริง" ระบบจะอัปเดตข้อมูลพื้นฐาน (ชื่อ, รุ่น, รหัสนิสิต) แต่ข้อมูลที่นิสิตเก่ากรอกไว้แล้วจะไม่ถูกทับ</span>
+        </div>
+      )}
       {result && <ImportReport job={result} title="นำเข้าเรียบร้อยแล้ว" tone="ok" />}
+
+      <h3 className="section-gap">รหัสยืนยันตัวตน</h3>
+      <p className="panel-note">
+        สร้างรหัสยืนยันตัวตนใหม่ทั้งหมดในรูปแบบ <strong>ปี พ.ศ. + ลำดับ 3 หลัก</strong> (เช่น 2563001)
+        <br />
+        ใช้เมื่อนำเข้าข้อมูลใหม่แล้วต้องการอัปเดตรหัสให้ตรงรูปแบบ หรือเมื่อต้องการรีเซ็ตรหัสทั้งหมด
+      </p>
+      <button className="ghost" disabled={busy} onClick={async () => {
+        if (!confirm("สร้างรหัสยืนยันตัวตนใหม่ทั้งหมด? รหัสเดิมจะใช้ไม่ได้อีก")) return;
+        setBusy(true); setMessage("");
+        try {
+          const res = await api("/api/admin/regenerate-codes", { method: "POST" });
+          setMessage(`สร้างรหัสใหม่เรียบร้อย ${res.total} รายการ`);
+        } catch (e) { setMessage(e.message); }
+        setBusy(false);
+      }}>
+        สร้างรหัสยืนยันตัวตนใหม่ทั้งหมด
+      </button>
 
       <h3 className="section-gap">ส่งออกข้อมูล</h3>
       <p className="panel-note">
         ส่งออกข้อมูลนิสิตเก่าเป็นไฟล์ Excel สำหรับใช้งานภายใน เลือกได้ทั้งเฉพาะรุ่นหรือทั้งหมด
         <br />
-        ไฟล์นี้ <strong>ไม่มีเลขบัตรประชาชน</strong> และจะรวมทุกสถานะทั้งที่ยืนยันแล้ว ยังไม่ตอบ และไม่ประสงค์ลง
+        ไฟล์ส่งออกจะมี<strong>รหัสยืนยันตัวตน</strong> ปีที่เข้าศึกษา ข้อมูลศิษย์เก่าดีเด่น และรวมทุกสถานะ
         <br />
         หากต้องการไฟล์ส่งมอบให้ทีมออกแบบ (พร้อมรูปถ่ายและไฟล์สำหรับ InDesign) ให้ใช้แท็บ <strong>ส่งมอบงานออกแบบ</strong>
       </p>
@@ -717,7 +805,68 @@ function ImportExport({ canReset }) {
         <span>รวมอีเมลและเบอร์โทรที่ผู้ดูแลใช้ติดตามงาน — เป็นข้อมูลภายใน ห้ามส่งต่อให้ทีมออกแบบ</span>
       </label>
 
+      <ResetInputZone canReset={canReset} />
       <DangerZone canReset={canReset} />
+    </div>
+  );
+}
+
+/** Reset user-entered data while keeping Excel-imported base records. */
+function ResetInputZone({ canReset }) {
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [result, setResult] = useState(null);
+  const PHRASE = "ล้างข้อมูลที่กรอก";
+
+  async function reset() {
+    if (!window.confirm("ยืนยันล้างข้อมูลที่นิสิตเก่ากรอกเข้ามา?\n\nข้อมูลพื้นฐานจากไฟล์ Excel (ชื่อ-นามสกุล, รุ่น, รหัสนิสิต) จะยังคงอยู่\nแต่ข้อมูลที่กรอกผ่านระบบ (รูปถ่าย, ช่องทางติดต่อ, ข้อมูลประวัติ, สถานะการส่ง) จะถูกรีเซ็ต")) return;
+    setBusy(true);
+    setMessage("");
+    setResult(null);
+    try {
+      const data = await api("/api/admin/reset-input", { method: "POST", body: { confirm } });
+      setResult(data.reset);
+      setConfirm("");
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="danger-zone" style={{ borderColor: "#d4a843" }}>
+      <h3>ล้างข้อมูลที่กรอกผ่านระบบ (เริ่มใช้งานจริง)</h3>
+      <p className="panel-note">
+        ใช้เมื่อทดสอบระบบ (UAT) เสร็จแล้ว ต้องการเริ่มใช้งานจริงโดยเก็บฐานข้อมูลจากไฟล์ Excel ไว้
+        <br />
+        <strong>จะถูกล้าง:</strong> รูปถ่าย, ช่องทางติดต่อ, ข้อมูลประวัติ, สถานะการส่ง, ความยินยอม PDPA, สถานะการติดตาม
+        <br />
+        <strong>จะไม่ถูกล้าง:</strong> ระเบียนนิสิตเก่า (ชื่อ, นามสกุล, รุ่น, รหัสนิสิต), บัญชีผู้ใช้ระบบ, รหัสยืนยันตัวตน
+        <br />
+        การกระทำนี้ <strong>ย้อนกลับไม่ได้</strong>
+      </p>
+      {canReset ? (
+        <div className="filters">
+          <Field label={`พิมพ์ "${PHRASE}" เพื่อยืนยัน`} value={confirm} setValue={setConfirm} placeholder={PHRASE} />
+          <button className="danger-btn compact-btn" style={{ background: "#b8860b", borderColor: "#b8860b" }} disabled={busy || confirm.trim() !== PHRASE} onClick={reset}>
+            <RotateCcw /> {busy ? "กำลังล้างข้อมูล…" : "ล้างข้อมูลที่กรอก"}
+          </button>
+        </div>
+      ) : (
+        <Alert tone="warn">
+          บัญชีของท่านไม่มีสิทธิ์ล้างข้อมูล — ทำได้เฉพาะเจ้าของระบบและผู้ดูแลระบบเท่านั้น
+        </Alert>
+      )}
+      <Alert>{message}</Alert>
+      {result && (
+        <Alert tone="ok">
+          ล้างข้อมูลที่กรอกเรียบร้อยแล้ว — รีเซ็ตระเบียน {result.alumni.toLocaleString("th-TH")} รายการ,
+          ข้อมูลที่ส่งเข้ามา {result.submissions.toLocaleString("th-TH")} รายการ,
+          รูปภาพ {result.photos.toLocaleString("th-TH")} ไฟล์ — ระบบพร้อมเริ่มใช้งานจริงจากฐานข้อมูล Excel
+        </Alert>
+      )}
     </div>
   );
 }

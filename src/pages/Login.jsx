@@ -76,14 +76,14 @@ export function ChangePassword({ user, onChanged, onCancel, forced }) {
         <p>
           {forced
             ? `บัญชี ${user.username} ยังใช้รหัสผ่านชั่วคราว กรุณาตั้งรหัสผ่านใหม่เพื่อเริ่มใช้งานระบบ`
-            : "รหัสผ่านต้องยาวอย่างน้อย 10 ตัวอักษร และมีทั้งตัวอักษรและตัวเลข"}
+            : "รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร"}
         </p>
         <p className="privacy-note">
           <ShieldCheck /> เมื่อบันทึกแล้ว ระบบจะออกจากระบบให้อัตโนมัติ และให้เข้าสู่ระบบใหม่ด้วยรหัสผ่านที่เพิ่งตั้ง
         </p>
         <form onSubmit={change}>
           <Field label="รหัสผ่านปัจจุบัน" value={currentPassword} setValue={setCurrentPassword} type="password" autoComplete="current-password" autoFocus />
-          <Field label="รหัสผ่านใหม่" value={newPassword} setValue={setNewPassword} type="password" autoComplete="new-password" hint="(อย่างน้อย 10 ตัว มีตัวอักษรและตัวเลข)" />
+          <Field label="รหัสผ่านใหม่" value={newPassword} setValue={setNewPassword} type="password" autoComplete="new-password" hint="(อย่างน้อย 6 ตัว)" />
           <Field label="ยืนยันรหัสผ่านใหม่" value={confirmPassword} setValue={setConfirmPassword} type="password" autoComplete="new-password" />
           <button className="next" disabled={busy || !currentPassword || !newPassword}>บันทึกรหัสผ่านใหม่ <ArrowRight /></button>
         </form>

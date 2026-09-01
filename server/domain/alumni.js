@@ -1,13 +1,12 @@
 import crypto from "node:crypto";
 import { config } from "../lib/env.js";
-import { countDocs, getDoc, listDocs, setDoc, updateDoc } from "../lib/db.js";
-import { hashIdCardLast5 } from "../lib/crypto.js";
+import { bulkSet, countDocs, getDoc, listDocs, setDoc, updateDoc } from "../lib/db.js";
 import { badRequest } from "../lib/http.js";
 import { effectiveMaxBatch } from "./settings.js";
 
 const { alumni: ALUMNI, submissions: SUBMISSIONS } = config.collections;
 
-export const CONTACT_TYPES = ["facebook", "instagram", "line", "phone"];
+export const CONTACT_TYPES = ["email", "line", "phone"];
 export const STATUSES = ["pending", "submitted", "declined"];
 
 /**
@@ -88,21 +87,30 @@ export function alumniId({ studentId, batch, firstName, lastName }) {
   return `n-${fingerprint}`;
 }
 
+export function entryYearFromStudentId(studentId) {
+  const digits = onlyDigits(studentId);
+  if (digits.length < 2) return null;
+  const yy = parseInt(digits.slice(0, 2), 10);
+  const year = 2500 + yy;
+  const currentBEYear = new Date().getFullYear() + 543;
+  return year > currentBEYear + 10 ? year - 100 : year;
+}
+
 /** Reference fields owned by the imported master list. */
-export function referenceFields({ studentId, batch, firstName, lastName, idCardLast5, title = "", outreachEmail = "", outreachPhone = "", note = "" }) {
+export function referenceFields({ studentId, batch, firstName, lastName, title = "", outreachEmail = "", outreachPhone = "", note = "" }) {
   const first = normalizeText(firstName);
   const last = normalizeText(lastName);
+  const student = onlyDigits(studentId);
   return {
-    studentId: onlyDigits(studentId),
+    studentId: student,
     batch,
+    entryYear: entryYearFromStudentId(student) || "",
     title: normalizeText(title),
     legalFirstName: first,
     legalLastName: last,
     searchFirst: searchKey(first),
     searchLast: searchKey(last),
     searchFull: `${searchKey(first)}${searchKey(last)}`,
-    idCardLast5Hash: hashIdCardLast5(idCardLast5),
-    // ช่องทางสำหรับผู้ดูแล "ตามงาน" เท่านั้น — คนละส่วนกับ contacts ที่เจ้าตัวยินยอมให้ลงหนังสือ
     outreach: { email: normalizeText(outreachEmail).toLowerCase(), phone: onlyDigits(outreachPhone), note: normalizeText(note) }
   };
 }
@@ -117,6 +125,7 @@ export function defaultSubmissionFields({ firstName, lastName }) {
     photo: null,
     contacts: [],
     bio: "",
+    wasFaculty: false,
     pdpa: { consent: false, consentAt: "", version: "" },
     submittedAt: "",
     reviewedBy: "",
@@ -129,11 +138,6 @@ export async function findAlumniById(id) {
   return getDoc(ALUMNI, id);
 }
 
-export function verifyIdCard(record, idCardLast5) {
-  const digits = onlyDigits(idCardLast5);
-  if (digits.length !== 5 || !record?.idCardLast5Hash) return false;
-  return hashIdCardLast5(digits) === record.idCardLast5Hash;
-}
 
 /**
  * Batch-scoped name search. Uses Firestore range queries for prefix matches
@@ -145,15 +149,16 @@ export async function searchAlumni(batch, rawQuery, { limit = 10 } = {}) {
   if (query.length < 2) throw badRequest("กรุณากรอกชื่อหรือนามสกุลอย่างน้อย 2 ตัวอักษร");
 
   const prefixEnd = `${query}\uf8ff`;
+  const batchClause = batch ? [["batch", "==", batch]] : [];
   const [byFirst, byLast] = await Promise.all([
-    listDocs(ALUMNI, { where: [["batch", "==", batch], ["searchFirst", ">=", query], ["searchFirst", "<=", prefixEnd]], orderBy: ["searchFirst"], limit: limit * 2 }),
-    listDocs(ALUMNI, { where: [["batch", "==", batch], ["searchLast", ">=", query], ["searchLast", "<=", prefixEnd]], orderBy: ["searchLast"], limit: limit * 2 })
+    listDocs(ALUMNI, { where: [...batchClause, ["searchFirst", ">=", query], ["searchFirst", "<=", prefixEnd]], orderBy: ["searchFirst"], limit: limit * 2 }),
+    listDocs(ALUMNI, { where: [...batchClause, ["searchLast", ">=", query], ["searchLast", "<=", prefixEnd]], orderBy: ["searchLast"], limit: limit * 2 })
   ]);
 
   const found = new Map();
   [...byFirst, ...byLast].forEach((record) => found.set(record.id, record));
 
-  if (found.size < limit) {
+  if (found.size < limit && batch) {
     const inBatch = await listDocs(ALUMNI, { where: [["batch", "==", batch]], limit: 1000 });
     inBatch
       .filter((record) => `${record.searchFirst}${record.searchLast}`.includes(query))
@@ -178,7 +183,7 @@ export function searchResult(record) {
 /** Full record for an administrator. */
 export function alumniView(record) {
   if (!record) return null;
-  const { idCardLast5Hash: _hash, ...safe } = record;
+  const { accessCodeHash: _hash, verificationCode: _code, ...safe } = record;
   return safe;
 }
 
@@ -190,7 +195,8 @@ export function alumniView(record) {
 export function selfView(record) {
   if (!record) return null;
   const {
-    idCardLast5Hash: _hash,
+    accessCodeHash: _hash,
+    verificationCode: _code,
     outreach: _outreach,
     source: _source,
     reviewNote: _reviewNote,
@@ -210,17 +216,11 @@ export function selfView(record) {
  * printed book has to read consistently.
  */
 export const CONTACT_RULES = {
-  facebook: {
-    label: "Facebook",
-    placeholder: "somchai.jaidee หรือ facebook.com/somchai.jaidee",
-    hint: "ใส่ชื่อผู้ใช้ หรือวางลิงก์โปรไฟล์ก็ได้",
-    example: "somchai.jaidee"
-  },
-  instagram: {
-    label: "Instagram",
-    placeholder: "somchai_j",
-    hint: "ใส่ชื่อผู้ใช้ ไม่ต้องใส่ @",
-    example: "somchai_j"
+  email: {
+    label: "อีเมล",
+    placeholder: "somchai@gmail.com",
+    hint: "อีเมลที่ต้องการให้แสดงในหนังสือ",
+    example: "somchai@gmail.com"
   },
   line: {
     label: "LINE ID",
@@ -275,7 +275,6 @@ function normalizeContact(type, raw) {
   }
 
   if (type === "line") {
-    // LINE official accounts legitimately start with @; personal IDs do not.
     const official = value.startsWith("@");
     const id = (handleFromUrl(value, ["line.me", "line.naver"]) || value).replace(/^@/, "").trim();
     if (/\s/.test(id)) throw badRequest("LINE ID ต้องไม่มีช่องว่าง กรุณาตรวจสอบอีกครั้ง");
@@ -285,26 +284,19 @@ function normalizeContact(type, raw) {
     return official ? `@${id}` : id;
   }
 
-  if (type === "instagram") {
-    const handle = (handleFromUrl(value, ["instagram.com"]) || value).replace(/^@/, "").trim();
-    if (/\s/.test(handle)) throw badRequest("ชื่อผู้ใช้ Instagram ต้องไม่มีช่องว่าง กรุณาตรวจสอบอีกครั้ง");
-    if (!/^[A-Za-z0-9._]{1,30}$/.test(handle)) {
-      throw badRequest("Instagram ใช้ได้เฉพาะ a-z, 0-9, จุด และขีดล่าง ยาวไม่เกิน 30 ตัว");
-    }
-    return handle;
+  if (type === "email") {
+    const email = value.toLowerCase().trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw badRequest("รูปแบบอีเมลไม่ถูกต้อง");
+    if (email.length > 254) throw badRequest("อีเมลยาวเกินไป");
+    return email;
   }
 
-  // Facebook allows Thai vanity names and numeric profile ids, so keep the
-  // handle as typed once the URL wrapper and stray @ are removed.
-  const handle = (handleFromUrl(value, ["facebook.com", "fb.com", "fb.me"]) || value).replace(/^@/, "").trim();
-  if (handle.length < 2 || handle.length > 80) throw badRequest("ชื่อผู้ใช้ Facebook ยาว 2-80 ตัวอักษร");
-  if (/\s{2,}|[<>"']/.test(handle)) throw badRequest("ชื่อผู้ใช้ Facebook มีอักขระที่ไม่รองรับ");
-  return handle;
+  throw badRequest("ช่องทางติดต่อไม่ถูกต้อง");
 }
 
 export function validateContacts(input) {
   const contacts = Array.isArray(input) ? input : [];
-  if (contacts.length > CONTACT_TYPES.length) throw badRequest("เลือกช่องทางติดต่อได้สูงสุด 4 ช่องทาง");
+  if (contacts.length > CONTACT_TYPES.length) throw badRequest("เลือกช่องทางติดต่อได้สูงสุด 3 ช่องทาง");
   const seen = new Set();
   return contacts.map((contact) => {
     const type = String(contact?.type || "").toLowerCase();
@@ -334,7 +326,7 @@ export async function saveAlumni(id, patch) {
  * the audit metadata never reach this collection.
  */
 export async function syncSubmission(record) {
-  const { idCardLast5Hash: _hash, source: _source, outreach: _outreach, ...rest } = record;
+  const { accessCodeHash: _hash, verificationCode: _code, source: _source, outreach: _outreach, ...rest } = record;
   return setDoc(SUBMISSIONS, record.id, { ...rest, syncedAt: new Date().toISOString() });
 }
 
@@ -459,6 +451,7 @@ export async function alumniSummary() {
   let withoutPhoto = 0;
   let withContacts = 0;
   let withBio = 0;
+  let faculty = 0;
   let nameChanged = 0;
   let photoBytes = 0;
   const recent = [];
@@ -479,6 +472,7 @@ export async function alumniSummary() {
       }
       if ((record.contacts || []).length) withContacts += 1;
       if ((record.bio || "").trim()) withBio += 1;
+      if (record.wasFaculty) faculty += 1;
       if ((record.nameHistory || []).length) nameChanged += 1;
       if (record.submittedAt) recent.push({ at: record.submittedAt, batch: record.batch });
     }
@@ -514,6 +508,7 @@ export async function alumniSummary() {
     withoutPhoto,
     withContacts,
     withBio,
+    faculty,
     nameChanged,
     photoBytes,
     followUp,
@@ -610,6 +605,33 @@ async function searchAlumniRecords({ batches = [], status, query, cap = 5000 }) 
 
   const results = [...found.values()].sort(compareForDisplay);
   return status ? results.filter((record) => record.status === status) : results;
+}
+
+/**
+ * Reset all user-submitted data back to defaults while preserving Excel-imported
+ * base records. Used when transitioning from UAT to production.
+ */
+export async function resetUserInput({ onProgress } = {}) {
+  const all = [];
+  const PAGE = 2000;
+  for (let offset = 0; ; offset += PAGE) {
+    const page = await listDocs(ALUMNI, { limit: PAGE, offset });
+    all.push(...page);
+    if (page.length < PAGE) break;
+  }
+
+  const entries = all.map((record) => ({
+    id: record.id,
+    data: {
+      ...defaultSubmissionFields({ firstName: record.legalFirstName, lastName: record.legalLastName }),
+      updatedAt: new Date().toISOString(),
+      updatedBy: "system"
+    }
+  }));
+
+  const updated = await bulkSet(ALUMNI, entries, { merge: true, onProgress });
+  invalidatePublicStats();
+  return { alumni: updated };
 }
 
 /** Every matching record, for export. Pages through in blocks rather than one huge read. */

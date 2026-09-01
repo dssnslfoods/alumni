@@ -71,7 +71,7 @@ export const config = {
   sessionHours: Number(process.env.AUTH_SESSION_HOURS || 8),
   maxLoginFailures: Number(process.env.AUTH_MAX_LOGIN_FAILURES || 8),
   lockoutMinutes: Number(process.env.AUTH_LOCKOUT_MINUTES || 15),
-  minPasswordLength: Number(process.env.AUTH_MIN_PASSWORD_LENGTH || 10),
+  minPasswordLength: Number(process.env.AUTH_MIN_PASSWORD_LENGTH || 6),
   maxBatch: Number(process.env.YEARBOOK_MAX_BATCH || 88),
   pdpaVersion: process.env.PDPA_VERSION || "yearbook-2569-v1",
   maxUploadBytes: Number(process.env.MAX_UPLOAD_BYTES || 10 * 1024 * 1024)

@@ -66,7 +66,6 @@ export function validateUsername(value) {
 export function validatePassword(password) {
   const value = String(password || "");
   if (value.length < config.minPasswordLength) throw badRequest(`รหัสผ่านต้องยาวอย่างน้อย ${config.minPasswordLength} ตัวอักษร`);
-  if (!/[A-Za-z]/.test(value) || !/[0-9]/.test(value)) throw badRequest("รหัสผ่านต้องมีทั้งตัวอักษรและตัวเลข");
   return value;
 }
 
