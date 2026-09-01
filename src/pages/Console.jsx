@@ -549,7 +549,7 @@ function AlumniTable({ user }) {
             <thead>
               <tr>
               <th>รุ่น</th><th>ชื่อสมัยเรียน</th><th>รหัสยืนยัน</th><th>ชื่อในหนังสือ</th><th>สถานะส่งข้อมูล</th>
-              <th>เบอร์ติดต่อ</th><th>รูป</th><th>ช่องทางที่ลงหนังสือ</th><th>สถานะติดตาม</th>
+              <th>รูป</th><th>ข้อมูลติดต่อ</th><th>สถานะติดตาม</th>
               {canEdit && <th></th>}
             </tr>
             </thead>
@@ -569,15 +569,21 @@ function AlumniTable({ user }) {
                       <span className={`status-chip status-${record.status}`}>{STATUS_LABELS[record.status]}</span>
                     )}
                   </td>
-                  <td className="contact-cell">
-                    {record.outreach?.phone
-                      ? <a href={`tel:${record.outreach.phone}`}>{formatPhone(record.outreach.phone)}</a>
-                      : <span className="muted-cell">ไม่มีเบอร์</span>}
-                    {record.outreach?.email && <><br /><a href={`mailto:${record.outreach.email}`}>{record.outreach.email}</a></>}
-                    {record.outreach?.note && <><br /><small>{record.outreach.note}</small></>}
-                  </td>
                   <td>{record.photo?.downloadUrl ? <a href={record.photo.downloadUrl} target="_blank" rel="noreferrer">ดูรูป</a> : record.photo?.choice === "placeholder" ? "ใช้ภาพคณะ" : "—"}</td>
-                  <td>{(record.contacts || []).map((contact) => contact.type).join(", ") || "—"}</td>
+                  <td className="contact-cell">
+                    {(() => {
+                      const contacts = record.contacts || [];
+                      const line = contacts.find((c) => c.type === "line")?.value;
+                      const phone = contacts.find((c) => c.type === "phone")?.value;
+                      const email = contacts.find((c) => c.type === "email")?.value;
+                      if (!line && !phone && !email) return <span className="muted-cell">—</span>;
+                      return <>
+                        {phone && <><a href={`tel:${phone}`}>{formatPhone(phone)}</a><br /></>}
+                        {line && <><small>LINE: {line}</small><br /></>}
+                        {email && <><a href={`mailto:${email}`}><small>{email}</small></a></>}
+                      </>;
+                    })()}
+                  </td>
                   <td>
                     <select
                       className={`follow-select follow-${record.followUp?.state || "none"}`}
@@ -629,7 +635,9 @@ function EditAlumniModal({ record, onClose, onSaved }) {
     facultyTitle: record.facultyTitle || "",
     outstandingAlumni: !!record.outstandingAlumni,
     outstandingYear: record.outstandingYear ? String(record.outstandingYear) : "",
-    bio: record.bio || "",
+    contactLine: (record.contacts || []).find((c) => c.type === "line")?.value || "",
+    contactPhone: (record.contacts || []).find((c) => c.type === "phone")?.value || "",
+    contactEmail: (record.contacts || []).find((c) => c.type === "email")?.value || "",
     photoChoice: "keep",
   });
   const [photo, setPhoto] = useState(null);
@@ -654,7 +662,11 @@ function EditAlumniModal({ record, onClose, onSaved }) {
       body.append("facultyTitle", draft.facultyTitle);
       body.append("outstandingAlumni", String(draft.outstandingAlumni));
       body.append("outstandingYear", draft.outstandingYear);
-      body.append("bio", draft.bio);
+      body.append("contacts", JSON.stringify([
+        { type: "line", value: draft.contactLine.trim() },
+        { type: "phone", value: draft.contactPhone.trim() },
+        { type: "email", value: draft.contactEmail.trim() },
+      ].filter((c) => c.value)));
       if (draft.photoChoice === "placeholder") body.append("photoChoice", "placeholder");
       if (photo) body.append("photo", photo);
       await api(`/api/admin/alumni/${record.id}`, { method: "PATCH", body });
@@ -697,7 +709,12 @@ function EditAlumniModal({ record, onClose, onSaved }) {
             <Field label="ได้รับเมื่อ พ.ศ." value={draft.outstandingYear} setValue={set("outstandingYear")} inputMode="numeric" />
           )}
 
-          <Field label="ประวัติโดยย่อ" value={draft.bio} setValue={set("bio")} placeholder="ไม่เกิน 500 ตัวอักษร" />
+          <h4 style={{ margin: "1rem 0 0.5rem" }}>ข้อมูลติดต่อ</h4>
+          <div className="form-grid">
+            <Field label="LINE ID" value={draft.contactLine} setValue={set("contactLine")} placeholder="เช่น @lineid" />
+            <Field label="เบอร์โทร" value={draft.contactPhone} setValue={set("contactPhone")} placeholder="เช่น 0812345678" inputMode="tel" />
+            <Field label="อีเมล" value={draft.contactEmail} setValue={set("contactEmail")} placeholder="example@mail.com" inputMode="email" />
+          </div>
 
           <div className="photo-edit-section">
             <label className="field-label">รูปภาพ</label>
