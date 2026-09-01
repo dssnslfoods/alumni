@@ -49,6 +49,7 @@ import {
   buildImportTemplate,
   importAlumniWorkbook,
   parseImportWorkbook,
+  parseRestoreWorkbook,
   previewImportCounts,
   recordImportJob,
   writeImportRows
@@ -573,6 +574,47 @@ router.post("/regenerate-codes", requirePermission("alumni.import"), route(async
   await bulkSet(config.collections.alumni, documents, { merge: true });
   await audit(req, "alumni.regenerateCodes", { meta: { total: documents.length, years: [...byYear.keys()].sort() } });
   res.json({ ok: true, total: documents.length, years: [...byYear.entries()].map(([y, l]) => ({ year: y, count: l.length })) });
+}));
+
+/* ----------------------------- restore (backup import) ------------------- */
+
+router.post("/restore", requirePermission("data.reset"), multipartBody({ maxSize: 50 * 1024 * 1024 }), route(async (req, res) => {
+  const mode = String(req.body?.mode || "merge");
+  if (!["merge", "replace"].includes(mode)) throw badRequest("mode ต้องเป็น merge หรือ replace");
+
+  const file = req.files?.[0];
+  if (!file) throw badRequest("กรุณาอัปโหลดไฟล์ Excel สำรอง");
+
+  const { records, errors, totalRows } = await parseRestoreWorkbook({ buffer: file.buffer, filename: file.originalname });
+  if (!records.length) throw badRequest("ไม่พบระเบียนที่ใช้ได้ในไฟล์", { errors: errors.slice(0, 50) });
+
+  let deletedCount = 0;
+  if (mode === "replace") {
+    deletedCount = await deleteAllDocs(config.collections.alumni);
+  }
+
+  const now = new Date().toISOString();
+  const documents = records.map((r) => ({
+    id: r.id,
+    data: { ...r.data, updatedAt: now, updatedBy: req.user.uid }
+  }));
+
+  await bulkSet(config.collections.alumni, documents, { merge: mode === "merge" });
+  invalidatePublicStats();
+
+  await audit(req, "data.restore", {
+    meta: { mode, filename: file.originalname, totalRows, restored: records.length, errors: errors.length, deleted: deletedCount }
+  });
+
+  res.json({
+    ok: true,
+    mode,
+    totalRows,
+    restored: records.length,
+    errors: errors.length,
+    deleted: deletedCount,
+    sampleErrors: errors.slice(0, 20)
+  });
 }));
 
 /* ----------------------------- danger zone ------------------------------- */

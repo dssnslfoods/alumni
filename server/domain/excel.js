@@ -419,6 +419,94 @@ export async function buildExportWorkbook(records, { includeOutreach = false } =
   return workbook.xlsx.writeBuffer();
 }
 
+const STATUS_REVERSE = { "ยืนยันลงหนังสือ": "submitted", "ไม่ประสงค์ลงหนังสือ": "declined", "ยังไม่ตอบ": "pending" };
+
+export async function parseRestoreWorkbook({ buffer, filename }) {
+  const { rows } = await readWorkbookRows(buffer, filename);
+  if (!rows.length) throw badRequest("ไม่พบแถวข้อมูลในไฟล์สำรอง");
+
+  const col = (row, name) => normalizeText(row[name] ?? "");
+
+  const records = [];
+  const errors = [];
+  rows.forEach((row) => {
+    const id = col(row, "รหัสระเบียน");
+    const firstName = col(row, "ชื่อสมัยเรียน");
+    const lastName = col(row, "นามสกุลสมัยเรียน");
+    const batchRaw = col(row, "รุ่น");
+    const batch = parseBatch(batchRaw);
+    if (!id || !firstName || !lastName || batch === null) {
+      errors.push({ rowNumber: row.__row, reason: "ขาดข้อมูลที่จำเป็น (รหัสระเบียน, ชื่อ, นามสกุล, รุ่น)" });
+      return;
+    }
+
+    const contacts = [];
+    const email = col(row, "อีเมล");
+    const line = col(row, "LINE");
+    const phone = col(row, "โทรศัพท์");
+    if (email) contacts.push({ type: "email", value: email });
+    if (line) contacts.push({ type: "line", value: line });
+    if (phone) contacts.push({ type: "phone", value: phone });
+
+    const photoChoice = col(row, "รูปภาพ");
+    const photoUrl = col(row, "ลิงก์รูปภาพ");
+    let photo = null;
+    if (photoChoice === "ส่งรูปแล้ว" && photoUrl) photo = { choice: "upload", downloadUrl: photoUrl };
+    else if (photoChoice === "ใช้ภาพคณะแทน") photo = { choice: "placeholder" };
+
+    const outstandingYearRaw = col(row, "ปี พ.ศ. ที่ได้รับ");
+
+    const statusThai = col(row, "สถานะ");
+    const followUpLabel = col(row, "สถานะติดตาม");
+    const followUpState = Object.entries(FOLLOW_UP_STATES).find(([, v]) => v.label === followUpLabel)?.[0] || "none";
+
+    records.push({
+      id,
+      data: {
+        id,
+        studentId: onlyDigits(col(row, "เลขประจำตัวนิสิต")),
+        batch,
+        entryYear: parseInt(col(row, "ปีที่เข้าศึกษา"), 10) || (2481 + batch),
+        verificationCode: col(row, "รหัสยืนยันตัวตน"),
+        title: col(row, "คำนำหน้า"),
+        legalFirstName: firstName,
+        legalLastName: lastName,
+        searchFirst: searchKey(firstName),
+        searchLast: searchKey(lastName),
+        searchFull: `${searchKey(firstName)}${searchKey(lastName)}`,
+        importedFirstName: col(row, "ชื่อเดิมจากฐานข้อมูล"),
+        importedLastName: col(row, "นามสกุลเดิมจากฐานข้อมูล"),
+        currentFirstName: col(row, "ชื่อปัจจุบัน") || firstName,
+        currentLastName: col(row, "นามสกุลปัจจุบัน") || lastName,
+        status: STATUS_REVERSE[statusThai] || "pending",
+        photo,
+        contacts,
+        wasFaculty: col(row, "เคยเป็นอาจารย์") === "ใช่",
+        facultyTitle: col(row, "ตำแหน่งทางวิชาการ"),
+        outstandingAlumni: col(row, "ศิษย์เก่าดีเด่น") === "ใช่",
+        outstandingYear: outstandingYearRaw === "จำไม่ได้" ? "n/a" : (outstandingYearRaw || ""),
+        followUp: {
+          state: followUpState,
+          note: col(row, "บันทึกการติดตาม"),
+          updatedBy: col(row, "ผู้บันทึกติดตาม"),
+          updatedAt: ""
+        },
+        pdpa: {
+          consent: col(row, "PDPA") === "ยินยอม",
+          consentAt: col(row, "เวลาที่ยินยอม"),
+          version: col(row, "เวอร์ชันคำยินยอม")
+        },
+        submittedAt: col(row, "เวลาที่ส่งข้อมูล"),
+        nameHistory: [],
+        bio: "",
+        outreach: { email: "", phone: "", note: "" }
+      }
+    });
+  });
+
+  return { records, errors, totalRows: rows.length };
+}
+
 /**
  * Column plan for the import template.
  * `required` drives the header colour and the instruction sheet.

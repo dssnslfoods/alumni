@@ -1098,8 +1098,82 @@ function ImportExport({ canReset }) {
         <span>รวมอีเมลและเบอร์โทรที่ผู้ดูแลใช้ติดตามงาน — เป็นข้อมูลภายใน ห้ามส่งต่อให้ทีมออกแบบ</span>
       </label>
 
+      <RestoreZone canReset={canReset} />
       <ResetInputZone canReset={canReset} />
       <DangerZone canReset={canReset} />
+    </div>
+  );
+}
+
+function RestoreZone({ canReset }) {
+  const [file, setFile] = useState(null);
+  const [mode, setMode] = useState("merge");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [result, setResult] = useState(null);
+
+  async function restore() {
+    if (!file) return;
+    const modeLabel = mode === "replace" ? "ทับทั้งหมด (ลบข้อมูลเดิมทั้งหมดก่อนนำเข้า)" : "อัปเดต (เพิ่ม/อัปเดตระเบียนที่มีอยู่)";
+    if (!window.confirm(`ยืนยันนำเข้าฐานข้อมูลจากไฟล์สำรอง?\n\nโหมด: ${modeLabel}\nไฟล์: ${file.name}`)) return;
+    if (mode === "replace" && !window.confirm("⚠️ โหมด \"ทับทั้งหมด\" จะลบข้อมูลเดิมทั้งหมดก่อนนำเข้า\n\nยืนยันอีกครั้ง?")) return;
+    setBusy(true);
+    setMessage("");
+    setResult(null);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      body.append("mode", mode);
+      const data = await api("/api/admin/restore", { method: "POST", body });
+      setResult(data);
+      setFile(null);
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!canReset) return null;
+
+  return (
+    <div className="danger-zone" style={{ borderColor: "#2e7d32" }}>
+      <h3>นำเข้าฐานข้อมูลจากไฟล์สำรอง (Restore)</h3>
+      <p className="panel-note">
+        ใช้ไฟล์ Excel ที่ส่งออกจากระบบ (ปุ่ม &ldquo;ส่งออก Excel&rdquo; ด้านบน) เพื่อกู้คืนหรืออัปเดตฐานข้อมูล
+        <br />
+        <strong>อัปเดต (merge):</strong> เพิ่มระเบียนใหม่ และอัปเดตระเบียนที่มีรหัสระเบียนซ้ำ — ข้อมูลเดิมที่ไม่มีในไฟล์จะยังคงอยู่
+        <br />
+        <strong>ทับทั้งหมด (replace):</strong> ลบข้อมูลเดิมทั้งหมดก่อน แล้วนำเข้าจากไฟล์ใหม่ทั้งหมด
+      </p>
+      <div className="filters">
+        <label className="field">
+          <span>ไฟล์สำรอง (.xlsx)</span>
+          <input type="file" accept=".xlsx,.xls" onChange={(e) => { setFile(e.target.files[0] || null); setResult(null); setMessage(""); }} />
+        </label>
+        <label className="field">
+          <span>โหมดนำเข้า</span>
+          <select value={mode} onChange={(e) => setMode(e.target.value)}>
+            <option value="merge">อัปเดต (merge)</option>
+            <option value="replace">ทับทั้งหมด (replace)</option>
+          </select>
+        </label>
+        <button className="next compact-btn" disabled={busy || !file} onClick={restore}>
+          {busy ? "กำลังนำเข้า…" : "นำเข้าฐานข้อมูล"}
+        </button>
+      </div>
+      {message && <p className="error-text">{message}</p>}
+      {result && (
+        <div className="import-result" style={{ marginTop: "0.5rem" }}>
+          <p>นำเข้าสำเร็จ — โหมด: <strong>{result.mode === "replace" ? "ทับทั้งหมด" : "อัปเดต"}</strong></p>
+          <ul>
+            <li>แถวทั้งหมดในไฟล์: {result.totalRows}</li>
+            <li>นำเข้าสำเร็จ: {result.restored} ระเบียน</li>
+            {result.deleted > 0 && <li>ลบข้อมูลเดิม: {result.deleted} ระเบียน</li>}
+            {result.errors > 0 && <li>ข้ามแถวที่มีปัญหา: {result.errors} แถว</li>}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
