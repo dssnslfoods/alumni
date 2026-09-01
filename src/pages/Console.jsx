@@ -704,6 +704,7 @@ function ImportExport({ canReset }) {
       }
       setResults(saved);
       setPreviews([]);
+      setFiles([]);
       setProgress({ phase: "done", percent: 100, done: totalEntries, total: totalEntries });
     } catch (error) {
       setProgress((current) => (current ? { ...current, phase: "failed" } : null));
