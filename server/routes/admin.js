@@ -5,7 +5,7 @@ import { generatePassword, generateVerificationCode } from "../lib/crypto.js";
 import { badRequest, forbidden, notFound, route } from "../lib/http.js";
 import { audit } from "../lib/audit.js";
 import { multipartBody } from "../lib/multipart.js";
-import { bulkSet, countDocs, deleteAllDocs, listDocs } from "../lib/db.js";
+import { bulkSet, countDocs, deleteAllDocs, deleteDoc, listDocs } from "../lib/db.js";
 import { assertBatchAccess, loadUser, requireAuth, requireFreshPassword, requirePermission } from "../middleware/auth.js";
 import {
   ROLES,
@@ -52,7 +52,7 @@ import {
   writeImportRows
 } from "../domain/excel.js";
 import { generateSampleRows } from "../domain/sample-data.js";
-import { deleteAllPhotos } from "../domain/photos.js";
+import { deleteAllPhotos, deletePhoto } from "../domain/photos.js";
 import {
   buildDataMergeCsv,
   buildHandoffRows,
@@ -279,6 +279,29 @@ router.patch("/alumni/:id/follow-up", requirePermission("alumni.followUp"), rout
 
 router.get("/follow-up/states", requirePermission("alumni.followUp"), route(async (_req, res) => {
   res.json({ states: Object.entries(FOLLOW_UP_STATES).map(([key, meta]) => ({ key, ...meta })) });
+}));
+
+/* -------------------------------- delete --------------------------------- */
+
+router.delete("/alumni/:id", requirePermission("alumni.write"), route(async (req, res) => {
+  const record = await findAlumniById(req.params.id);
+  if (!record) throw notFound("ไม่พบระเบียนนิสิตเก่า");
+  assertBatchAccess(req.user, record.batch);
+
+  if (record.photo) await deletePhoto(record.photo);
+  await deleteDoc(config.collections.submissions, record.id);
+  await deleteDoc(config.collections.alumni, record.id);
+  invalidatePublicStats();
+  await audit(req, "alumni.delete", {
+    targetType: "alumni",
+    targetId: record.id,
+    meta: {
+      batch: record.batch,
+      name: `${record.legalFirstName} ${record.legalLastName}`,
+      studentId: record.studentId || ""
+    }
+  });
+  res.json({ ok: true });
 }));
 
 /* -------------------------------- import --------------------------------- */

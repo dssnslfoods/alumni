@@ -448,6 +448,25 @@ function AlumniTable({ user }) {
     }
   }
 
+  async function deleteRecord(record) {
+    if (!window.confirm(
+      `ยืนยันลบระเบียนนิสิตเก่า?\n\n` +
+      `ชื่อ: ${record.legalFirstName} ${record.legalLastName}\n` +
+      `รุ่น: ${record.batch}\n` +
+      `รหัสนิสิต: ${record.studentId || "ไม่มี"}\n` +
+      `รหัสทะเบียน: ${record.id}\n\n` +
+      `การลบนี้จะลบข้อมูลทั้งหมดของคนนี้ รวมถึงรูปภาพ และย้อนกลับไม่ได้`
+    )) return;
+    setMessage("");
+    try {
+      await api(`/api/admin/alumni/${record.id}`, { method: "DELETE" });
+      setMessage(`ลบระเบียน ${record.legalFirstName} ${record.legalLastName} (${record.id}) เรียบร้อยแล้ว`);
+      reload();
+    } catch (deleteError) {
+      setMessage(deleteError.message);
+    }
+  }
+
   return (
     <div className="panel">
       <div className="panel-head">
@@ -519,6 +538,7 @@ function AlumniTable({ user }) {
               <tr>
               <th>รุ่น</th><th>ชื่อสมัยเรียน</th><th>ชื่อในหนังสือ</th><th>สถานะส่งข้อมูล</th>
               <th>เบอร์ติดต่อ</th><th>รูป</th><th>ช่องทางที่ลงหนังสือ</th><th>สถานะติดตาม</th>
+              {canEdit && <th></th>}
             </tr>
             </thead>
             <tbody>
@@ -557,12 +577,94 @@ function AlumniTable({ user }) {
                       <small className="follow-meta">โดย {record.followUp.updatedBy}{record.followUp.note ? ` · ${record.followUp.note}` : ""}</small>
                     )}
                   </td>
+                  {canEdit && (
+                    <td><button className="ghost danger-ghost" onClick={() => deleteRecord(record)} title="ลบระเบียน"><Trash2 /></button></td>
+                  )}
                 </tr>
               ))}
-              {!data?.records?.length && <tr><td colSpan="8" className="empty">ไม่พบข้อมูลตามเงื่อนไข</td></tr>}
+              {!data?.records?.length && <tr><td colSpan={canEdit ? 9 : 8} className="empty">ไม่พบข้อมูลตามเงื่อนไข</td></tr>}
             </tbody>
           </table>
         </>
+      )}
+
+      {canEdit && <DeleteByIdSection onDeleted={reload} />}
+    </div>
+  );
+}
+
+function DeleteByIdSection({ onDeleted }) {
+  const [lookupId, setLookupId] = useState("");
+  const [found, setFound] = useState(null);
+  const [lookupMessage, setLookupMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function lookup() {
+    const id = lookupId.trim();
+    if (!id) return setLookupMessage("กรุณากรอกรหัสทะเบียน");
+    setBusy(true);
+    setLookupMessage("");
+    setFound(null);
+    try {
+      const data = await api(`/api/admin/alumni/${encodeURIComponent(id)}`);
+      setFound(data.record);
+    } catch (error) {
+      setLookupMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!found) return;
+    if (!window.confirm(
+      `ยืนยันลบระเบียนนิสิตเก่า?\n\n` +
+      `ชื่อ: ${found.legalFirstName} ${found.legalLastName}\n` +
+      `รุ่น: ${found.batch}\n` +
+      `รหัสนิสิต: ${found.studentId || "ไม่มี"}\n` +
+      `รหัสทะเบียน: ${found.id}\n\n` +
+      `การลบนี้ย้อนกลับไม่ได้`
+    )) return;
+    setBusy(true);
+    setLookupMessage("");
+    try {
+      await api(`/api/admin/alumni/${encodeURIComponent(found.id)}`, { method: "DELETE" });
+      setLookupMessage(`ลบระเบียน ${found.legalFirstName} ${found.legalLastName} (${found.id}) เรียบร้อยแล้ว`);
+      setFound(null);
+      setLookupId("");
+      onDeleted?.();
+    } catch (error) {
+      setLookupMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 32, borderTop: "1px solid var(--line)", paddingTop: 24 }}>
+      <h3>ค้นหาและลบระเบียนด้วยรหัสทะเบียน</h3>
+      <p className="panel-note">กรอกรหัสทะเบียน (เช่น s-6330001233 หรือ n-abc123...) เพื่อดึงข้อมูลขึ้นมาตรวจสอบก่อนลบ</p>
+      <div className="filters">
+        <Field label="รหัสทะเบียน" value={lookupId} setValue={setLookupId} placeholder="เช่น s-6330001233" />
+        <button className="ghost compact-btn" disabled={busy || !lookupId.trim()} onClick={lookup}>ค้นหา</button>
+      </div>
+      <Alert>{lookupMessage}</Alert>
+      {found && (
+        <div className="review" style={{ marginBottom: 16 }}>
+          <div><span>รหัสทะเบียน</span><strong>{found.id}</strong></div>
+          <div><span>รุ่น</span><strong>{found.batch}</strong></div>
+          <div><span>เลขประจำตัวนิสิต</span><strong>{found.studentId || "—"}</strong></div>
+          <div><span>ชื่อสมัยเรียน</span><strong>{found.legalFirstName} {found.legalLastName}</strong></div>
+          <div><span>ชื่อปัจจุบัน</span><strong>{found.currentFirstName} {found.currentLastName}</strong></div>
+          <div><span>สถานะส่งข้อมูล</span><strong>{STATUS_LABELS[found.status] || found.status}</strong></div>
+          <div><span>รูปถ่าย</span><strong>{found.photo?.downloadUrl ? "มี" : "ไม่มี"}</strong></div>
+          <div><span>รหัสยืนยันตัวตน</span><strong>{found.verificationCode || "—"}</strong></div>
+        </div>
+      )}
+      {found && (
+        <button className="danger-btn compact-btn" disabled={busy} onClick={confirmDelete}>
+          <Trash2 /> ลบระเบียนนี้
+        </button>
       )}
     </div>
   );
@@ -1498,6 +1600,7 @@ const ACTION_LABELS = {
   "auth.login": "เข้าสู่ระบบ",
   "auth.changePassword": "เปลี่ยนรหัสผ่าน",
   "data.reset": "ล้างข้อมูลทั้งหมด",
+  "alumni.delete": "ลบระเบียน",
   "data.resetInput": "ล้างข้อมูลที่กรอก",
   "settings.update": "อัปเดตการตั้งค่า",
   "alumni.regenerateCodes": "สร้างรหัสยืนยันใหม่",
@@ -1516,6 +1619,8 @@ function describeAudit(log) {
       return `อัปเดตสถานะ: ${m.state || "—"}`;
     case "users.create":
       return `สร้างบัญชี${m.role ? ` (${m.role})` : ""}`;
+    case "alumni.delete":
+      return `ลบระเบียน ${m.name || "—"} รุ่น ${m.batch || "—"}${m.studentId ? ` (${m.studentId})` : ""}`;
     case "data.reset":
       return `ล้างข้อมูล: ${(m.alumni || 0).toLocaleString("th-TH")} ระเบียน, ${(m.photos || 0).toLocaleString("th-TH")} รูป`;
     case "data.resetInput":
