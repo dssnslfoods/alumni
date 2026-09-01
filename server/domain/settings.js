@@ -57,7 +57,7 @@ export function effectiveBioMaxLength() {
 }
 
 export async function updateSettings(patch, actor) {
-  const allowed = ["submissionOpen", "closedMessage", "maxBatch", "pdpaVersion", "bookTitle", "bioMaxLength"];
+  const allowed = ["submissionOpen", "closedMessage", "maxBatch", "pdpaVersion", "bookTitle", "bioMaxLength", "followUpOptions"];
   const next = Object.fromEntries(Object.entries(patch).filter(([key]) => allowed.includes(key)));
 
   if (next.maxBatch !== undefined) {
@@ -73,6 +73,14 @@ export async function updateSettings(patch, actor) {
       throw badRequest("ความยาวประวัติสูงสุดต้องอยู่ระหว่าง 50-2,000 ตัวอักษร");
     }
     next.bioMaxLength = bioMaxLength;
+  }
+
+  if (next.followUpOptions !== undefined) {
+    if (!Array.isArray(next.followUpOptions)) throw badRequest("ตัวเลือกสถานะติดตามต้องเป็น array");
+    next.followUpOptions = next.followUpOptions
+      .map((opt) => ({ key: String(opt.key || "").trim(), label: String(opt.label || "").trim() }))
+      .filter((opt) => opt.key && opt.label);
+    if (next.followUpOptions.length < 1) throw badRequest("ต้องมีตัวเลือกสถานะติดตามอย่างน้อย 1 รายการ");
   }
 
   const saved = await setDoc(config.collections.settings, DOC_ID, {

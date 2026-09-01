@@ -28,8 +28,9 @@ export const FOLLOW_UP_STATES = {
 
 export const FOLLOW_UP_KEYS = Object.keys(FOLLOW_UP_STATES);
 
-export function validateFollowUp(state, note, actor) {
-  if (!FOLLOW_UP_KEYS.includes(state)) throw badRequest("สถานะการติดตามไม่ถูกต้อง");
+export function validateFollowUp(state, note, actor, { allowedKeys } = {}) {
+  const validKeys = allowedKeys?.length ? allowedKeys : FOLLOW_UP_KEYS;
+  if (!validKeys.includes(state)) throw badRequest("สถานะการติดตามไม่ถูกต้อง");
   return {
     state,
     note: normalizeText(note).slice(0, 300),

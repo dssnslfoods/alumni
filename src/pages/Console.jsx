@@ -397,6 +397,18 @@ function AlumniTable({ user }) {
   const [message, setMessage] = useState("");
   const [pageSize, setPageSize] = useState(200);
   const [offset, setOffset] = useState(0);
+  const [editingRecord, setEditingRecord] = useState(null);
+  const [followUpOptions, setFollowUpOptions] = useState(null);
+
+  useEffect(() => {
+    api("/api/admin/follow-up/states").then((data) => {
+      const map = {};
+      (data.states || []).forEach((s) => { map[s.key] = s.label; });
+      setFollowUpOptions(map);
+    }).catch(() => {});
+  }, []);
+
+  const fuLabels = followUpOptions || FOLLOW_UP_LABELS;
 
   // Nothing is fetched until the administrator narrows the view. With 10,000+
   // records, loading "everything" by default is slow and rarely what is wanted.
@@ -572,14 +584,17 @@ function AlumniTable({ user }) {
                       value={record.followUp?.state || "none"}
                       onChange={(event) => updateFollowUp(record, event.target.value)}
                     >
-                      {Object.entries(FOLLOW_UP_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                      {Object.entries(fuLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
                     </select>
                     {record.followUp?.updatedBy && (
                       <small className="follow-meta">โดย {record.followUp.updatedBy}{record.followUp.note ? ` · ${record.followUp.note}` : ""}</small>
                     )}
                   </td>
                   {canEdit && (
-                    <td><button className="ghost danger-ghost" onClick={() => deleteRecord(record)} title="ลบระเบียน"><Trash2 /></button></td>
+                    <td className="action-cell">
+                      <button className="ghost" onClick={() => setEditingRecord(record)} title="แก้ไข"><Pencil /></button>
+                      <button className="ghost danger-ghost" onClick={() => deleteRecord(record)} title="ลบระเบียน"><Trash2 /></button>
+                    </td>
                   )}
                 </tr>
               ))}
@@ -590,6 +605,124 @@ function AlumniTable({ user }) {
       )}
 
       {canEdit && <DeleteByIdSection onDeleted={reload} />}
+
+      {editingRecord && (
+        <EditAlumniModal
+          record={editingRecord}
+          onClose={() => setEditingRecord(null)}
+          onSaved={() => { setEditingRecord(null); reload(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function EditAlumniModal({ record, onClose, onSaved }) {
+  const [draft, setDraft] = useState({
+    legalFirstName: record.legalFirstName || "",
+    legalLastName: record.legalLastName || "",
+    currentFirstName: record.currentFirstName || "",
+    currentLastName: record.currentLastName || "",
+    studentId: record.studentId || "",
+    entryYear: record.entryYear ? String(record.entryYear) : "",
+    wasFaculty: !!record.wasFaculty,
+    facultyTitle: record.facultyTitle || "",
+    outstandingAlumni: !!record.outstandingAlumni,
+    outstandingYear: record.outstandingYear ? String(record.outstandingYear) : "",
+    bio: record.bio || "",
+    photoChoice: "keep",
+  });
+  const [photo, setPhoto] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const set = (key) => (value) => setDraft((prev) => ({ ...prev, [key]: value }));
+
+  async function save(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const body = new FormData();
+      body.append("legalFirstName", draft.legalFirstName);
+      body.append("legalLastName", draft.legalLastName);
+      body.append("currentFirstName", draft.currentFirstName);
+      body.append("currentLastName", draft.currentLastName);
+      body.append("studentId", draft.studentId);
+      body.append("entryYear", draft.entryYear);
+      body.append("wasFaculty", String(draft.wasFaculty));
+      body.append("facultyTitle", draft.facultyTitle);
+      body.append("outstandingAlumni", String(draft.outstandingAlumni));
+      body.append("outstandingYear", draft.outstandingYear);
+      body.append("bio", draft.bio);
+      if (draft.photoChoice === "placeholder") body.append("photoChoice", "placeholder");
+      if (photo) body.append("photo", photo);
+      await api(`/api/admin/alumni/${record.id}`, { method: "PATCH", body });
+      onSaved();
+    } catch (saveError) {
+      setError(saveError.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal-box edit-alumni-modal">
+        <h3>แก้ไขข้อมูล — {record.legalFirstName} {record.legalLastName} (รุ่น {record.batch})</h3>
+        <Alert>{error}</Alert>
+        <form onSubmit={save}>
+          <div className="form-grid">
+            <Field label="ชื่อสมัยเรียน" value={draft.legalFirstName} setValue={set("legalFirstName")} />
+            <Field label="นามสกุลสมัยเรียน" value={draft.legalLastName} setValue={set("legalLastName")} />
+            <Field label="ชื่อในหนังสือ" value={draft.currentFirstName} setValue={set("currentFirstName")} />
+            <Field label="นามสกุลในหนังสือ" value={draft.currentLastName} setValue={set("currentLastName")} />
+            <Field label="รหัสประจำตัวนิสิต" value={draft.studentId} setValue={set("studentId")} placeholder="10 หลัก" inputMode="numeric" />
+            <Field label="ปีที่เข้าศึกษา (พ.ศ.)" value={draft.entryYear} setValue={set("entryYear")} placeholder="เช่น 2526" inputMode="numeric" />
+          </div>
+
+          <label className="switch-row">
+            <input type="checkbox" checked={draft.wasFaculty} onChange={(e) => { setDraft((prev) => ({ ...prev, wasFaculty: e.target.checked, facultyTitle: e.target.checked ? prev.facultyTitle : "" })); }} />
+            <span>เคยเป็นอาจารย์ที่คณะ</span>
+          </label>
+          {draft.wasFaculty && (
+            <Field label="ตำแหน่งทางวิชาการ" value={draft.facultyTitle} setValue={set("facultyTitle")} placeholder="เช่น ศ.ดร." />
+          )}
+
+          <label className="switch-row">
+            <input type="checkbox" checked={draft.outstandingAlumni} onChange={(e) => { setDraft((prev) => ({ ...prev, outstandingAlumni: e.target.checked, outstandingYear: e.target.checked ? prev.outstandingYear : "" })); }} />
+            <span>ศิษย์เก่าดีเด่น</span>
+          </label>
+          {draft.outstandingAlumni && (
+            <Field label="ได้รับเมื่อ พ.ศ." value={draft.outstandingYear} setValue={set("outstandingYear")} inputMode="numeric" />
+          )}
+
+          <Field label="ประวัติโดยย่อ" value={draft.bio} setValue={set("bio")} placeholder="ไม่เกิน 500 ตัวอักษร" />
+
+          <div className="photo-edit-section">
+            <label className="field-label">รูปภาพ</label>
+            {record.photo?.downloadUrl && (
+              <div className="existing-photo-mini">
+                <img src={record.photo.downloadUrl} alt="รูปเดิม" />
+                <small>รูปปัจจุบัน</small>
+              </div>
+            )}
+            <div className="radio-group">
+              <label><input type="radio" name="photoEdit" checked={draft.photoChoice === "keep"} onChange={() => setDraft((prev) => ({ ...prev, photoChoice: "keep" }))} /> ใช้รูปเดิม</label>
+              <label><input type="radio" name="photoEdit" checked={draft.photoChoice === "upload"} onChange={() => setDraft((prev) => ({ ...prev, photoChoice: "upload" }))} /> อัปโหลดรูปใหม่</label>
+              <label><input type="radio" name="photoEdit" checked={draft.photoChoice === "placeholder"} onChange={() => setDraft((prev) => ({ ...prev, photoChoice: "placeholder" }))} /> ไม่แสดงรูป (ใช้ภาพคณะ)</label>
+            </div>
+            {draft.photoChoice === "upload" && (
+              <input type="file" accept="image/*" onChange={(e) => setPhoto(e.target.files[0] || null)} />
+            )}
+          </div>
+
+          <div className="modal-actions">
+            <button type="button" className="ghost" onClick={onClose} disabled={busy}>ยกเลิก</button>
+            <button className="next compact-btn" disabled={busy}><Save /> {busy ? "กำลังบันทึก…" : "บันทึก"}</button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
@@ -1545,6 +1678,14 @@ function SettingsPanel() {
 
   if (loading || !draft) return <p className="console-loading">กำลังโหลด…</p>;
 
+  const fuOpts = draft.followUpOptions?.length
+    ? draft.followUpOptions
+    : Object.entries(FOLLOW_UP_LABELS).map(([key, label]) => ({ key, label }));
+
+  function setFollowUpOpts(opts) {
+    setDraft({ ...draft, followUpOptions: opts });
+  }
+
   return (
     <div className="panel">
       <h3>ตั้งค่าระบบ</h3>
@@ -1580,6 +1721,30 @@ function SettingsPanel() {
           />
           <Field label="เวอร์ชันคำยินยอม PDPA" value={draft.pdpaVersion} setValue={(value) => setDraft({ ...draft, pdpaVersion: value })} hint="(เปลี่ยนเมื่อแก้ข้อความคำยินยอม)" />
         </div>
+
+        <h4 style={{ marginTop: "1.5rem" }}>ตัวเลือกสถานะติดตาม</h4>
+        <p className="panel-note">กำหนดตัวเลือกที่แสดงในคอลัมน์ "สถานะติดตาม" ของตารางรายชื่อนิสิตเก่า</p>
+        <div className="follow-up-options-editor">
+          {fuOpts.map((opt, i) => (
+            <div key={i} className="follow-up-option-row">
+              <input
+                className="fu-key"
+                value={opt.key}
+                onChange={(e) => { const next = [...fuOpts]; next[i] = { ...next[i], key: e.target.value.replace(/\s/g, "") }; setFollowUpOpts(next); }}
+                placeholder="key (ภาษาอังกฤษ)"
+              />
+              <input
+                className="fu-label"
+                value={opt.label}
+                onChange={(e) => { const next = [...fuOpts]; next[i] = { ...next[i], label: e.target.value }; setFollowUpOpts(next); }}
+                placeholder="ชื่อที่แสดง"
+              />
+              <button type="button" className="ghost danger-ghost" onClick={() => { const next = fuOpts.filter((_, j) => j !== i); setFollowUpOpts(next); }} title="ลบ"><Trash2 /></button>
+            </div>
+          ))}
+          <button type="button" className="ghost" onClick={() => setFollowUpOpts([...fuOpts, { key: "", label: "" }])}>+ เพิ่มตัวเลือก</button>
+        </div>
+
         <button className="next compact-btn">บันทึกการตั้งค่า</button>
       </form>
     </div>

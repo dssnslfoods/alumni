@@ -33,10 +33,12 @@ import {
   listAlumni,
   listAllAlumni,
   normalizeText,
+  onlyDigits,
   parseBatch,
   parseBatchList,
   invalidatePublicStats,
   saveAlumni,
+  searchKey,
   syncSubmission,
   validateContacts,
   resetUserInput,
@@ -52,7 +54,7 @@ import {
   writeImportRows
 } from "../domain/excel.js";
 import { generateSampleRows } from "../domain/sample-data.js";
-import { deleteAllPhotos, deletePhoto } from "../domain/photos.js";
+import { deleteAllPhotos, deletePhoto, normalizePhoto, storePhoto } from "../domain/photos.js";
 import {
   buildDataMergeCsv,
   buildHandoffRows,
@@ -229,12 +231,30 @@ router.get("/alumni/:id", requirePermission("alumni.read"), route(async (req, re
   res.json({ record: alumniView(record) });
 }));
 
-router.patch("/alumni/:id", requirePermission("alumni.write"), route(async (req, res) => {
+router.patch("/alumni/:id", requirePermission("alumni.write"), multipartBody({ maxFiles: 1 }), route(async (req, res) => {
   const record = await findAlumniById(req.params.id);
   if (!record) throw notFound("ไม่พบระเบียนนิสิตเก่า");
   assertBatchAccess(req.user, record.batch);
 
   const patch = { updatedBy: req.user.username };
+
+  if (req.body?.legalFirstName !== undefined || req.body?.legalLastName !== undefined) {
+    const first = normalizeText(req.body.legalFirstName ?? record.legalFirstName);
+    const last = normalizeText(req.body.legalLastName ?? record.legalLastName);
+    if (!first || !last) throw badRequest("ต้องระบุทั้งชื่อและนามสกุลสมัยเรียน");
+    if (searchKey(first) !== searchKey(record.legalFirstName) || searchKey(last) !== searchKey(record.legalLastName)) {
+      if (!record.importedFirstName) {
+        patch.importedFirstName = record.legalFirstName;
+        patch.importedLastName = record.legalLastName;
+      }
+      patch.legalFirstName = first;
+      patch.legalLastName = last;
+      patch.searchFirst = searchKey(first);
+      patch.searchLast = searchKey(last);
+      patch.searchFull = `${searchKey(first)}${searchKey(last)}`;
+    }
+  }
+
   if (req.body?.currentFirstName !== undefined || req.body?.currentLastName !== undefined) {
     const firstName = normalizeText(req.body.currentFirstName ?? record.currentFirstName);
     const lastName = normalizeText(req.body.currentLastName ?? record.currentLastName);
@@ -243,12 +263,33 @@ router.patch("/alumni/:id", requirePermission("alumni.write"), route(async (req,
     patch.currentFirstName = firstName;
     patch.currentLastName = lastName;
   }
+
+  if (req.body?.studentId !== undefined) patch.studentId = onlyDigits(req.body.studentId);
+  if (req.body?.entryYear !== undefined) patch.entryYear = parseInt(req.body.entryYear, 10) || "";
+  if (req.body?.wasFaculty !== undefined) patch.wasFaculty = String(req.body.wasFaculty) === "true";
+  if (req.body?.facultyTitle !== undefined) patch.facultyTitle = normalizeText(req.body.facultyTitle);
+  if (req.body?.outstandingAlumni !== undefined) patch.outstandingAlumni = String(req.body.outstandingAlumni) === "true";
+  if (req.body?.outstandingYear !== undefined) patch.outstandingYear = parseInt(req.body.outstandingYear, 10) || "";
   if (req.body?.bio !== undefined) patch.bio = normalizeText(req.body.bio).slice(0, 500);
-  if (req.body?.contacts !== undefined) patch.contacts = validateContacts(req.body.contacts);
+  if (req.body?.contacts !== undefined) patch.contacts = validateContacts(typeof req.body.contacts === "string" ? JSON.parse(req.body.contacts || "[]") : req.body.contacts);
+
   if (req.body?.status !== undefined) {
     if (!STATUSES.includes(req.body.status)) throw badRequest("สถานะไม่ถูกต้อง");
     patch.status = req.body.status;
   }
+
+  const uploaded = req.files?.photo;
+  const photoChoice = req.body?.photoChoice;
+  if (photoChoice === "placeholder") {
+    if (record.photo?.storagePath) await deletePhoto(record.photo);
+    patch.photo = { choice: "placeholder", updatedAt: new Date().toISOString() };
+  } else if (uploaded) {
+    const previous = record.photo;
+    const name = { currentFirstName: patch.currentFirstName || record.currentFirstName, currentLastName: patch.currentLastName || record.currentLastName };
+    patch.photo = await storePhoto({ ...record, ...name }, await normalizePhoto(uploaded));
+    if (previous?.storagePath) await deletePhoto(previous);
+  }
+
   if (req.body?.reviewNote !== undefined) patch.reviewNote = normalizeText(req.body.reviewNote).slice(0, 500);
   patch.reviewedBy = req.user.username;
 
@@ -270,7 +311,11 @@ router.patch("/alumni/:id/follow-up", requirePermission("alumni.followUp"), rout
   if (!record) throw notFound("ไม่พบระเบียนนิสิตเก่า");
   assertBatchAccess(req.user, record.batch);
 
-  const followUp = validateFollowUp(String(req.body?.state || ""), req.body?.note, req.user);
+  const settings = await getSettings();
+  const allowedKeys = settings.followUpOptions?.length
+    ? settings.followUpOptions.map((opt) => opt.key)
+    : undefined;
+  const followUp = validateFollowUp(String(req.body?.state || ""), req.body?.note, req.user, { allowedKeys });
   const updated = await saveAlumni(record.id, { followUp });
   await syncSubmission({ ...record, ...updated });
   await audit(req, "alumni.followUp", { targetType: "alumni", targetId: record.id, meta: { state: followUp.state } });
@@ -278,6 +323,10 @@ router.patch("/alumni/:id/follow-up", requirePermission("alumni.followUp"), rout
 }));
 
 router.get("/follow-up/states", requirePermission("alumni.followUp"), route(async (_req, res) => {
+  const settings = await getSettings();
+  if (settings.followUpOptions?.length) {
+    return res.json({ states: settings.followUpOptions });
+  }
   res.json({ states: Object.entries(FOLLOW_UP_STATES).map(([key, meta]) => ({ key, ...meta })) });
 }));
 
