@@ -41,6 +41,14 @@ export function parseBatchFromFilename(filename) {
   return match ? parseBatch(match[1]) : null;
 }
 
+/** Extract entry year from filename like "82-2563.xlsx" → 2563 */
+export function parseEntryYearFromFilename(filename) {
+  const match = String(filename || "").match(/[-–_.](\d{4})/);
+  if (!match) return null;
+  const year = parseInt(match[1], 10);
+  return year >= 2400 && year <= 2600 ? year : null;
+}
+
 /** Generate a 10-digit student ID from batch and sequence: YY + 8-digit padded seq */
 function generateStudentId(batch, seq) {
   const entryYear = 2481 + batch;
@@ -111,7 +119,7 @@ function pick(row, aliases) {
   return key ? normalizeText(row[key]) : "";
 }
 
-export function mapRow(row, { filenameBatch, rowIndex } = {}) {
+export function mapRow(row, { filenameBatch, filenameEntryYear, rowIndex } = {}) {
   const firstName = pick(row, COLUMN_ALIASES.firstName);
   const lastName = pick(row, COLUMN_ALIASES.lastName);
   const batch = parseBatch(pick(row, COLUMN_ALIASES.batch)) ?? filenameBatch;
@@ -136,6 +144,8 @@ export function mapRow(row, { filenameBatch, rowIndex } = {}) {
   }
   if (outreachEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(outreachEmail)) warnings.push("รูปแบบอีเมลไม่ถูกต้อง จึงไม่บันทึกอีเมล");
 
+  const entryYear = parseInt(entryYearRaw, 10) || filenameEntryYear || null;
+
   return {
     ok: true,
     rowNumber: row.__row,
@@ -145,6 +155,7 @@ export function mapRow(row, { filenameBatch, rowIndex } = {}) {
       lastName,
       batch,
       studentId,
+      entryYear,
       title,
       currentFirstName,
       currentLastName,
@@ -167,7 +178,8 @@ export async function parseImportWorkbook({ buffer, filename }) {
   if (!rows.length) throw badRequest("ไม่พบแถวข้อมูลในไฟล์");
 
   const filenameBatch = parseBatchFromFilename(filename);
-  const mapped = rows.map((row, index) => mapRow(row, { filenameBatch, rowIndex: index + 1 }));
+  const filenameEntryYear = parseEntryYearFromFilename(filename);
+  const mapped = rows.map((row, index) => mapRow(row, { filenameBatch, filenameEntryYear, rowIndex: index + 1 }));
   const invalid = mapped.filter((item) => !item.ok);
   const valid = mapped.filter((item) => item.ok);
   if (!valid.length) {
@@ -212,6 +224,7 @@ export function validateImportValue(raw) {
     lastName: normalizeText(raw?.lastName),
     batch: parseBatch(raw?.batch),
     studentId: onlyDigits(raw?.studentId),
+    entryYear: parseInt(raw?.entryYear, 10) || null,
     title: normalizeText(raw?.title),
     currentFirstName: normalizeText(raw?.currentFirstName),
     currentLastName: normalizeText(raw?.currentLastName),

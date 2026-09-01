@@ -97,14 +97,14 @@ export function entryYearFromStudentId(studentId) {
 }
 
 /** Reference fields owned by the imported master list. */
-export function referenceFields({ studentId, batch, firstName, lastName, title = "", outreachEmail = "", outreachPhone = "", note = "" }) {
+export function referenceFields({ studentId, batch, entryYear: explicitEntryYear, firstName, lastName, title = "", outreachEmail = "", outreachPhone = "", note = "" }) {
   const first = normalizeText(firstName);
   const last = normalizeText(lastName);
   const student = onlyDigits(studentId);
   return {
     studentId: student,
     batch,
-    entryYear: entryYearFromStudentId(student) || (batch ? 2481 + batch : ""),
+    entryYear: entryYearFromStudentId(student) || explicitEntryYear || (batch ? 2481 + batch : ""),
     title: normalizeText(title),
     legalFirstName: first,
     legalLastName: last,
