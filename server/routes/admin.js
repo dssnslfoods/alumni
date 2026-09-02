@@ -578,14 +578,14 @@ router.post("/regenerate-codes", requirePermission("alumni.import"), route(async
 
 /* ----------------------------- restore (backup import) ------------------- */
 
-router.post("/restore", requirePermission("data.reset"), multipartBody({ maxSize: 50 * 1024 * 1024 }), route(async (req, res) => {
+router.post("/restore", requirePermission("data.reset"), multipartBody({ maxFileBytes: 50 * 1024 * 1024 }), route(async (req, res) => {
   const mode = String(req.body?.mode || "merge");
   if (!["merge", "replace"].includes(mode)) throw badRequest("mode ต้องเป็น merge หรือ replace");
 
-  const file = req.files?.[0];
+  const file = req.files?.file;
   if (!file) throw badRequest("กรุณาอัปโหลดไฟล์ Excel สำรอง");
 
-  const { records, errors, totalRows } = await parseRestoreWorkbook({ buffer: file.buffer, filename: file.originalname });
+  const { records, errors, totalRows } = await parseRestoreWorkbook({ buffer: file.buffer, filename: file.filename });
   if (!records.length) throw badRequest("ไม่พบระเบียนที่ใช้ได้ในไฟล์", { errors: errors.slice(0, 50) });
 
   let deletedCount = 0;
