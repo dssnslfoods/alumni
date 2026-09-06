@@ -413,6 +413,7 @@ export function Yearbook() {
                 <span>{item.firstName} {item.lastName}</span>
                 <small>
                   {item.alreadySubmitted ? "ส่งข้อมูลแล้ว — กดเพื่อแก้ไข" : `รุ่น ${item.batch}${item.studentId ? ` · รหัสนิสิต ${item.studentId}` : ""}`}
+                  {item.legalName ? ` · ชื่อสมัยเรียน ${item.legalName}` : ""}
                 </small>
                 <ArrowRight />
               </button>

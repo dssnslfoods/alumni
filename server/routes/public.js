@@ -352,10 +352,10 @@ router.post("/submit", multipartBody({ maxFiles: 1 }), route(async (req, res) =>
     }
     patch.legalFirstName = newLegalFirst;
     patch.legalLastName = newLegalLast;
-    patch.searchFirst = searchKey(newLegalFirst);
-    patch.searchLast = searchKey(newLegalLast);
-    patch.searchFull = `${searchKey(newLegalFirst)}${searchKey(newLegalLast)}`;
   }
+  patch.searchFirst = searchKey(firstName);
+  patch.searchLast = searchKey(lastName);
+  patch.searchFull = `${searchKey(firstName)}${searchKey(lastName)}`;
 
   await saveAlumni(record.id, patch);
   await syncSubmission({ ...record, ...patch });

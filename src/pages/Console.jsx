@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  CheckCircle,
   ChevronLeft,
   ChevronRight,
+  Circle,
   ClipboardList,
   Download,
   FileSpreadsheet,
@@ -462,6 +464,17 @@ function AlumniTable({ user }) {
     }
   }
 
+  async function toggleApproval(record) {
+    const approved = !record.approval?.approved;
+    setMessage("");
+    try {
+      await api(`/api/admin/alumni/${record.id}/approve`, { method: "PATCH", body: { approved } });
+      reload();
+    } catch (approveError) {
+      setMessage(approveError.message);
+    }
+  }
+
   async function deleteRecord(record) {
     if (!window.confirm(
       `ยืนยันลบระเบียนนิสิตเก่า?\n\n` +
@@ -551,7 +564,7 @@ function AlumniTable({ user }) {
             <thead>
               <tr>
               <th>รุ่น</th><th>ชื่อสมัยเรียน</th><th>รหัสยืนยัน</th><th>ชื่อในหนังสือ</th><th>สถานะส่งข้อมูล</th>
-              <th>รูป</th><th>ข้อมูลติดต่อ</th><th>สถานะติดตาม</th>
+              <th>รูป</th><th>ข้อมูลติดต่อ</th><th>สถานะติดตาม</th><th>ตรวจทาน</th>
               {canEdit && <th></th>}
             </tr>
             </thead>
@@ -598,6 +611,18 @@ function AlumniTable({ user }) {
                       <small className="follow-meta">โดย {record.followUp.updatedBy}{record.followUp.note ? ` · ${record.followUp.note}` : ""}</small>
                     )}
                   </td>
+                  <td className="approval-cell">
+                    <button
+                      className={`ghost approval-btn ${record.approval?.approved ? "approved" : ""}`}
+                      onClick={() => toggleApproval(record)}
+                      title={record.approval?.approved ? `อนุมัติโดย ${record.approval.approvedBy} (${record.approval.approvedRole})` : "คลิกเพื่ออนุมัติ"}
+                    >
+                      {record.approval?.approved ? <CheckCircle size={18} /> : <Circle size={18} />}
+                    </button>
+                    {record.approval?.approved && (
+                      <small className="approval-meta">{record.approval.approvedBy}<br />{record.approval.approvedRole}</small>
+                    )}
+                  </td>
                   {canEdit && (
                     <td className="action-cell">
                       <button className="ghost" onClick={() => setEditingRecord(record)} title="แก้ไข"><Pencil /></button>
@@ -606,7 +631,7 @@ function AlumniTable({ user }) {
                   )}
                 </tr>
               ))}
-              {!data?.records?.length && <tr><td colSpan={canEdit ? 10 : 9} className="empty">ไม่พบข้อมูลตามเงื่อนไข</td></tr>}
+              {!data?.records?.length && <tr><td colSpan={canEdit ? 11 : 10} className="empty">ไม่พบข้อมูลตามเงื่อนไข</td></tr>}
             </tbody>
           </table>
         </>

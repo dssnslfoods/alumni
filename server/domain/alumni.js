@@ -175,10 +175,14 @@ export async function searchAlumni(batch, rawQuery, { limit = 10 } = {}) {
 
 /** Public search result — no ID-card material, no contact details. */
 export function searchResult(record) {
+  const firstName = record.currentFirstName || record.legalFirstName;
+  const lastName = record.currentLastName || record.legalLastName;
+  const nameChanged = firstName !== record.legalFirstName || lastName !== record.legalLastName;
   return {
     id: record.id,
-    firstName: record.legalFirstName,
-    lastName: record.legalLastName,
+    firstName,
+    lastName,
+    legalName: nameChanged ? `${record.legalFirstName} ${record.legalLastName}` : "",
     batch: record.batch,
     studentId: record.studentId ? `${record.studentId.slice(0, 4)}xxxx${record.studentId.slice(-2)}` : "",
     alreadySubmitted: record.status === "submitted"

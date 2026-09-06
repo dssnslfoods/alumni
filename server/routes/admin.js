@@ -250,9 +250,11 @@ router.patch("/alumni/:id", requirePermission("alumni.write"), multipartBody({ m
       }
       patch.legalFirstName = first;
       patch.legalLastName = last;
-      patch.searchFirst = searchKey(first);
-      patch.searchLast = searchKey(last);
-      patch.searchFull = `${searchKey(first)}${searchKey(last)}`;
+      const sFirst = record.currentFirstName || first;
+      const sLast = record.currentLastName || last;
+      patch.searchFirst = searchKey(sFirst);
+      patch.searchLast = searchKey(sLast);
+      patch.searchFull = `${searchKey(sFirst)}${searchKey(sLast)}`;
     }
   }
 
@@ -263,6 +265,9 @@ router.patch("/alumni/:id", requirePermission("alumni.write"), multipartBody({ m
     patch.nameHistory = appendNameHistory(record, firstName, lastName, req.user.username);
     patch.currentFirstName = firstName;
     patch.currentLastName = lastName;
+    patch.searchFirst = searchKey(firstName);
+    patch.searchLast = searchKey(lastName);
+    patch.searchFull = `${searchKey(firstName)}${searchKey(lastName)}`;
   }
 
   if (req.body?.reportedStudentId !== undefined) patch.reportedStudentId = onlyDigits(req.body.reportedStudentId);
@@ -326,6 +331,22 @@ router.patch("/alumni/:id/follow-up", requirePermission("alumni.followUp"), rout
   const updated = await saveAlumni(record.id, { followUp });
   await syncSubmission({ ...record, ...updated });
   await audit(req, "alumni.followUp", { targetType: "alumni", targetId: record.id, meta: { state: followUp.state } });
+  res.json({ record: alumniView(updated) });
+}));
+
+const ROLE_LABELS = { owner: "เจ้าของระบบ", admin: "ผู้ดูแล", staff: "ตัวแทนรุ่น" };
+
+router.patch("/alumni/:id/approve", requirePermission("alumni.write"), route(async (req, res) => {
+  const record = await findAlumniById(req.params.id);
+  if (!record) throw notFound("ไม่พบระเบียนนิสิตเก่า");
+  assertBatchAccess(req.user, record.batch);
+
+  const approved = req.body?.approved !== false;
+  const approval = approved
+    ? { approved: true, approvedBy: req.user.username, approvedRole: ROLE_LABELS[req.user.role] || req.user.role, approvedAt: new Date().toISOString() }
+    : { approved: false, approvedBy: null, approvedRole: null, approvedAt: null };
+  const updated = await saveAlumni(record.id, { approval });
+  await audit(req, approved ? "alumni.approve" : "alumni.unapprove", { targetType: "alumni", targetId: record.id });
   res.json({ record: alumniView(updated) });
 }));
 
