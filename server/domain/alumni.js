@@ -155,18 +155,26 @@ export async function searchAlumni(batch, rawQuery, { limit = 10 } = {}) {
 
   const prefixEnd = `${query}\uf8ff`;
   const batchClause = batch ? [["batch", "==", batch]] : [];
-  const [byFirst, byLast] = await Promise.all([
+  const queries = [
     listDocs(ALUMNI, { where: [...batchClause, ["searchFirst", ">=", query], ["searchFirst", "<=", prefixEnd]], orderBy: ["searchFirst"], limit: limit * 2 }),
     listDocs(ALUMNI, { where: [...batchClause, ["searchLast", ">=", query], ["searchLast", "<=", prefixEnd]], orderBy: ["searchLast"], limit: limit * 2 })
-  ]);
+  ];
+  if (rawQuery.trim().includes(" ")) {
+    queries.push(listDocs(ALUMNI, { where: [...batchClause, ["searchFull", ">=", query], ["searchFull", "<=", prefixEnd]], orderBy: ["searchFull"], limit: limit * 2 }));
+  }
+  const results = await Promise.all(queries);
 
   const found = new Map();
-  [...byFirst, ...byLast].forEach((record) => found.set(record.id, record));
+  results.flat().forEach((record) => found.set(record.id, record));
 
   if (found.size < limit && batch) {
     const inBatch = await listDocs(ALUMNI, { where: [["batch", "==", batch]], limit: 1000 });
     inBatch
-      .filter((record) => `${record.searchFirst}${record.searchLast}`.includes(query))
+      .filter((record) => {
+        const current = `${searchKey(record.currentFirstName || "")}${searchKey(record.currentLastName || "")}`;
+        const legal = `${searchKey(record.legalFirstName)}${searchKey(record.legalLastName)}`;
+        return current.includes(query) || legal.includes(query);
+      })
       .forEach((record) => found.set(record.id, record));
   }
 

@@ -1987,6 +1987,7 @@ function SettingsPanel() {
 
         <button className="next compact-btn">บันทึกการตั้งค่า</button>
       </form>
+
     </div>
   );
 }

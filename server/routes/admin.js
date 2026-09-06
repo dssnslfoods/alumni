@@ -250,11 +250,9 @@ router.patch("/alumni/:id", requirePermission("alumni.write"), multipartBody({ m
       }
       patch.legalFirstName = first;
       patch.legalLastName = last;
-      const sFirst = record.currentFirstName || first;
-      const sLast = record.currentLastName || last;
-      patch.searchFirst = searchKey(sFirst);
-      patch.searchLast = searchKey(sLast);
-      patch.searchFull = `${searchKey(sFirst)}${searchKey(sLast)}`;
+      patch.searchFirst = searchKey(first);
+      patch.searchLast = searchKey(last);
+      patch.searchFull = `${searchKey(first)}${searchKey(last)}`;
     }
   }
 
@@ -265,9 +263,6 @@ router.patch("/alumni/:id", requirePermission("alumni.write"), multipartBody({ m
     patch.nameHistory = appendNameHistory(record, firstName, lastName, req.user.username);
     patch.currentFirstName = firstName;
     patch.currentLastName = lastName;
-    patch.searchFirst = searchKey(firstName);
-    patch.searchLast = searchKey(lastName);
-    patch.searchFull = `${searchKey(firstName)}${searchKey(lastName)}`;
   }
 
   if (req.body?.reportedStudentId !== undefined) patch.reportedStudentId = onlyDigits(req.body.reportedStudentId);
