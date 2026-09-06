@@ -1,3 +1,8 @@
+const TRACK_FIELDS = ["currentFirstName", "currentLastName", "legalFirstName", "legalLastName", "reportedStudentId", "reportedEntryYear", "wasFaculty", "facultyTitle", "outstandingAlumni", "outstandingYear", "contacts", "photo"];
+function changedFields(record, patch) {
+  return TRACK_FIELDS.filter((f) => f in patch && JSON.stringify(patch[f]) !== JSON.stringify(record[f]));
+}
+
 import express from "express";
 import { config } from "../lib/env.js";
 import { signToken, verifyToken } from "../lib/crypto.js";
@@ -196,11 +201,18 @@ router.post("/draft", multipartBody({ maxFiles: 1 }), route(async (req, res) => 
 
   const facultyTitle = wasFaculty ? normalizeText(req.body?.facultyTitle) : "";
 
+  const reportedStudentId = studentIdRaw || "";
+  const studentIdEdited = reportedStudentId && reportedStudentId !== (record.studentId || "") ? "Y" : "";
+  const reportedEntryYear = entryYear || null;
+  const entryYearEdited = reportedEntryYear && String(reportedEntryYear) !== String(record.entryYear || "") ? "Y" : "";
+
   const patch = {
     wasFaculty,
     facultyTitle,
-    reportedStudentId: studentIdRaw || "",
-    entryYear,
+    reportedStudentId,
+    studentIdEdited,
+    reportedEntryYear,
+    entryYearEdited,
     outstandingAlumni,
     outstandingYear,
     draftAt: new Date().toISOString(),
@@ -251,7 +263,7 @@ router.post("/draft", multipartBody({ maxFiles: 1 }), route(async (req, res) => 
   }
 
   await saveAlumni(record.id, patch);
-  await audit(req, "public.draft", { targetType: "alumni", targetId: record.id });
+  await audit(req, "public.draft", { targetType: "alumni", targetId: record.id, meta: { name: `${record.legalFirstName} ${record.legalLastName}`, batch: record.batch, changed: changedFields(record, patch) } });
   res.json({ ok: true });
 }));
 
@@ -307,6 +319,11 @@ router.post("/submit", multipartBody({ maxFiles: 1 }), route(async (req, res) =>
     && (searchKey(newLegalFirst) !== searchKey(record.legalFirstName)
       || searchKey(newLegalLast) !== searchKey(record.legalLastName));
 
+  const reportedStudentId = studentIdRaw || "";
+  const studentIdEdited = reportedStudentId && reportedStudentId !== (record.studentId || "") ? "Y" : "";
+  const reportedEntryYear = entryYear || null;
+  const entryYearEdited = reportedEntryYear && String(reportedEntryYear) !== String(record.entryYear || "") ? "Y" : "";
+
   const patch = {
     currentFirstName: firstName,
     currentLastName: lastName,
@@ -314,8 +331,10 @@ router.post("/submit", multipartBody({ maxFiles: 1 }), route(async (req, res) =>
     bio,
     wasFaculty,
     facultyTitle,
-    reportedStudentId: studentIdRaw || "",
-    entryYear,
+    reportedStudentId,
+    studentIdEdited,
+    reportedEntryYear,
+    entryYearEdited,
     outstandingAlumni,
     outstandingYear,
     contacts,
@@ -341,7 +360,7 @@ router.post("/submit", multipartBody({ maxFiles: 1 }), route(async (req, res) =>
   await saveAlumni(record.id, patch);
   await syncSubmission({ ...record, ...patch });
   if (record.status !== "submitted") bumpPublicStats(record.batch, 1);
-  await audit(req, "public.submit", { targetType: "alumni", targetId: record.id, meta: { photoChoice, contactTypes: contacts.map((item) => item.type) } });
+  await audit(req, "public.submit", { targetType: "alumni", targetId: record.id, meta: { name: `${record.legalFirstName} ${record.legalLastName}`, batch: record.batch, photoChoice, contactTypes: contacts.map((item) => item.type), changed: changedFields(record, patch) } });
   res.json({
     ok: true,
     photoUrl: photo?.downloadUrl || "",

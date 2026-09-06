@@ -18,11 +18,16 @@ import {
   Trash2,
   Upload,
   UserPlus,
-  Users
+  Users,
+  Mail,
+  Phone,
+  Landmark,
+  X
 } from "lucide-react";
 import { Alert, Field, Shell } from "../components/Shell.jsx";
 import { api, download, session } from "../lib/api.js";
 
+const thai = (value) => Number(value || 0).toLocaleString("th-TH");
 const ROLE_LABELS = { owner: "เจ้าของระบบ", admin: "ผู้ดูแลระบบ", staff: "ตัวแทนรุ่น", alumni: "นิสิตเก่า" };
 const STATUS_LABELS = { pending: "ยังไม่ตอบ", submitted: "ยืนยันแล้ว", declined: "ไม่ประสงค์ลง" };
 
@@ -111,7 +116,6 @@ function Overview({ user }) {
   if (loading) return <p className="console-loading">กำลังโหลดข้อมูล…</p>;
   if (error) return <Alert>{error}</Alert>;
 
-  const thai = (value) => Number(value || 0).toLocaleString("th-TH");
   const scoped = user?.batchScope?.length ? user.batchScope : null;
   const batches = scoped ? data.byBatch.filter((item) => scoped.includes(item.batch)) : data.byBatch;
 
@@ -267,7 +271,7 @@ function StatusBar({ total, segments }) {
           <li key={segment.key}>
             <i className={`seg-${segment.tone}`} />
             {segment.label}
-            <strong>{Number(segment.value || 0).toLocaleString("th-TH")}</strong>
+            <strong>{thai(segment.value)}</strong>
             <em>{Math.round((segment.value / safeTotal) * 100)}%</em>
           </li>
         ))}
@@ -310,7 +314,7 @@ function Completeness({ total, items }) {
           <div key={item.label}>
             <div className="completeness-head"><span>{item.label}</span><strong>{percent}%</strong></div>
             <div className="mini-track"><div className="mini-fill" style={{ width: `${percent}%` }} /></div>
-            <small>{Number(item.value || 0).toLocaleString("th-TH")} จาก {Number(total || 0).toLocaleString("th-TH")} คน</small>
+            <small>{thai(item.value)} จาก {thai(total)} คน</small>
           </div>
         );
       })}
@@ -429,9 +433,7 @@ function AlumniTable({ user }) {
   const shown = data?.records?.length ?? 0;
   const from = total === 0 ? 0 : offset + 1;
   const to = offset + shown;
-  const thai = (value) => Number(value || 0).toLocaleString("th-TH");
-
-  const canEdit = ["owner", "admin"].includes(user.role);
+  const canEdit = ["owner", "admin", "staff"].includes(user.role);
 
   async function updateFollowUp(record, state) {
     setMessage("");
@@ -633,16 +635,31 @@ function EditAlumniModal({ record, onClose, onSaved }) {
     entryYear: record.entryYear ? String(record.entryYear) : "",
     wasFaculty: !!record.wasFaculty,
     facultyTitle: record.facultyTitle || "",
+    facultyTitleOther: !!(record.facultyTitle && !["ศ.", "รศ.", "ผศ.", "อ.", "ศ.ดร.", "รศ.ดร.", "ผศ.ดร.", "อ.ดร."].includes(record.facultyTitle)),
     outstandingAlumni: !!record.outstandingAlumni,
     outstandingYear: record.outstandingYear ? String(record.outstandingYear) : "",
-    contactLine: (record.contacts || []).find((c) => c.type === "line")?.value || "",
-    contactPhone: (record.contacts || []).find((c) => c.type === "phone")?.value || "",
-    contactEmail: (record.contacts || []).find((c) => c.type === "email")?.value || "",
+    selectedContact: (record.contacts || [])[0]?.type || "",
+    contactValues: {
+      email: (record.contacts || []).find((c) => c.type === "email")?.value || "",
+      line: (record.contacts || []).find((c) => c.type === "line")?.value || "",
+      phone: (record.contacts || []).find((c) => c.type === "phone")?.value || "",
+    },
     photoChoice: "keep",
   });
   const [photo, setPhoto] = useState(null);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState(null);
+  const [photoDragOver, setPhotoDragOver] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => () => { if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl); }, [photoPreviewUrl]);
+
+  function choosePhoto(file) {
+    setPhoto(file);
+    if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+    setPhotoPreviewUrl(file ? URL.createObjectURL(file) : null);
+    if (file) setDraft((prev) => ({ ...prev, photoChoice: "upload" }));
+  }
 
   const set = (key) => (value) => setDraft((prev) => ({ ...prev, [key]: value }));
 
@@ -662,11 +679,10 @@ function EditAlumniModal({ record, onClose, onSaved }) {
       body.append("facultyTitle", draft.facultyTitle);
       body.append("outstandingAlumni", String(draft.outstandingAlumni));
       body.append("outstandingYear", draft.outstandingYear);
-      body.append("contacts", JSON.stringify([
-        { type: "line", value: draft.contactLine.trim() },
-        { type: "phone", value: draft.contactPhone.trim() },
-        { type: "email", value: draft.contactEmail.trim() },
-      ].filter((c) => c.value)));
+      const contactList = draft.selectedContact && draft.contactValues[draft.selectedContact]?.trim()
+        ? [{ type: draft.selectedContact, value: draft.contactValues[draft.selectedContact].trim() }]
+        : [];
+      body.append("contacts", JSON.stringify(contactList));
       if (draft.photoChoice === "placeholder") body.append("photoChoice", "placeholder");
       if (photo) body.append("photo", photo);
       await api(`/api/admin/alumni/${record.id}`, { method: "PATCH", body });
@@ -694,11 +710,28 @@ function EditAlumniModal({ record, onClose, onSaved }) {
           </div>
 
           <label className="switch-row">
-            <input type="checkbox" checked={draft.wasFaculty} onChange={(e) => { setDraft((prev) => ({ ...prev, wasFaculty: e.target.checked, facultyTitle: e.target.checked ? prev.facultyTitle : "" })); }} />
-            <span>เคยเป็นอาจารย์ที่คณะ</span>
+            <input type="checkbox" checked={draft.wasFaculty} onChange={(e) => { setDraft((prev) => ({ ...prev, wasFaculty: e.target.checked, facultyTitle: e.target.checked ? prev.facultyTitle : "", facultyTitleOther: false })); }} />
+            <span>เคยเป็นอาจารย์ที่คณะเภสัช จุฬา</span>
           </label>
           {draft.wasFaculty && (
-            <Field label="ตำแหน่งทางวิชาการ" value={draft.facultyTitle} setValue={set("facultyTitle")} placeholder="เช่น ศ.ดร." />
+            <div className="faculty-title-field">
+              <label className="field-label">ตำแหน่งทางวิชาการ</label>
+              <select value={draft.facultyTitleOther ? "__other" : draft.facultyTitle} onChange={(e) => { if (e.target.value === "__other") { setDraft((prev) => ({ ...prev, facultyTitleOther: true, facultyTitle: "" })); } else { setDraft((prev) => ({ ...prev, facultyTitleOther: false, facultyTitle: e.target.value })); } }}>
+                <option value="">— เลือกตำแหน่ง —</option>
+                <option value="ศ.">ศ. (ศาสตราจารย์)</option>
+                <option value="รศ.">รศ. (รองศาสตราจารย์)</option>
+                <option value="ผศ.">ผศ. (ผู้ช่วยศาสตราจารย์)</option>
+                <option value="อ.">อ. (อาจารย์)</option>
+                <option value="ศ.ดร.">ศ.ดร. (ศาสตราจารย์ ดร.)</option>
+                <option value="รศ.ดร.">รศ.ดร. (รองศาสตราจารย์ ดร.)</option>
+                <option value="ผศ.ดร.">ผศ.ดร. (ผู้ช่วยศาสตราจารย์ ดร.)</option>
+                <option value="อ.ดร.">อ.ดร. (อาจารย์ ดร.)</option>
+                <option value="__other">อื่นๆ (ระบุเอง)</option>
+              </select>
+              {draft.facultyTitleOther && (
+                <Field label="ระบุตำแหน่ง" value={draft.facultyTitle} setValue={set("facultyTitle")} placeholder="เช่น ศ.เกียรติคุณ ดร." />
+              )}
+            </div>
           )}
 
           <label className="switch-row">
@@ -709,28 +742,54 @@ function EditAlumniModal({ record, onClose, onSaved }) {
             <Field label="ได้รับเมื่อ พ.ศ." value={draft.outstandingYear} setValue={set("outstandingYear")} inputMode="numeric" />
           )}
 
-          <h4 style={{ margin: "1rem 0 0.5rem" }}>ข้อมูลติดต่อ</h4>
-          <div className="form-grid">
-            <Field label="LINE ID" value={draft.contactLine} setValue={set("contactLine")} placeholder="เช่น @lineid" />
-            <Field label="เบอร์โทร" value={draft.contactPhone} setValue={set("contactPhone")} placeholder="เช่น 0812345678" inputMode="tel" />
-            <Field label="อีเมล" value={draft.contactEmail} setValue={set("contactEmail")} placeholder="example@mail.com" inputMode="email" />
+          <h4 style={{ margin: "1rem 0 0.5rem" }}>เลือกช่องทางติดต่อที่ต้องการแสดง</h4>
+          <p style={{ margin: "0 0 8px", color: "var(--muted)", fontSize: ".9rem" }}>เลือกได้ 1 ช่องทาง หรือเลือกไม่แสดงข้อมูลติดต่อ</p>
+          <div className="contact-options">
+            {[["email", "อีเมล", Mail], ["line", "LINE ID", Landmark], ["phone", "โทรศัพท์", Phone], ["none", "ไม่แสดงข้อมูลติดต่อ", X]].map(([type, label, Icon]) => (
+              <button
+                key={type}
+                type="button"
+                className={(type === "none" ? !draft.selectedContact : draft.selectedContact === type) ? "selected" : ""}
+                onClick={() => setDraft((prev) => ({ ...prev, selectedContact: type === "none" || prev.selectedContact === type ? "" : type }))}
+              >
+                <Icon />{label}
+              </button>
+            ))}
           </div>
+          {draft.selectedContact && (
+            <Field
+              label={{ email: "อีเมล", line: "LINE ID", phone: "เบอร์โทร" }[draft.selectedContact]}
+              value={draft.contactValues[draft.selectedContact] || ""}
+              setValue={(v) => { const fmt = draft.selectedContact === "phone" ? (() => { const d = String(v).replace(/\D/g, "").slice(0, 10); if (d.length > 6) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`; if (d.length > 3) return `${d.slice(0, 3)}-${d.slice(3)}`; return d; })() : v; setDraft((prev) => ({ ...prev, contactValues: { ...prev.contactValues, [prev.selectedContact]: fmt } })); }}
+              placeholder={{ email: "somchai@gmail.com", line: "somchai2569", phone: "081-234-5678" }[draft.selectedContact]}
+              inputMode={draft.selectedContact === "phone" ? "tel" : draft.selectedContact === "email" ? "email" : "text"}
+            />
+          )}
 
           <div className="photo-edit-section">
             <label className="field-label">รูปภาพ</label>
-            {record.photo?.downloadUrl && (
+            {(photoPreviewUrl || record.photo?.downloadUrl) && (
               <div className="existing-photo-mini">
-                <img src={record.photo.downloadUrl} alt="รูปเดิม" />
-                <small>รูปปัจจุบัน</small>
+                <img src={photoPreviewUrl || record.photo.downloadUrl} alt="รูป" />
+                <small>{photoPreviewUrl ? "รูปใหม่ที่เลือก" : "รูปปัจจุบัน"}</small>
               </div>
             )}
-            <div className="radio-group">
-              <label><input type="radio" name="photoEdit" checked={draft.photoChoice === "keep"} onChange={() => setDraft((prev) => ({ ...prev, photoChoice: "keep" }))} /> ใช้รูปเดิม</label>
-              <label><input type="radio" name="photoEdit" checked={draft.photoChoice === "upload"} onChange={() => setDraft((prev) => ({ ...prev, photoChoice: "upload" }))} /> อัปโหลดรูปใหม่</label>
-              <label><input type="radio" name="photoEdit" checked={draft.photoChoice === "placeholder"} onChange={() => setDraft((prev) => ({ ...prev, photoChoice: "placeholder" }))} /> ไม่แสดงรูป (ใช้ภาพคณะ)</label>
+            <div className="toggle-group" style={{ marginBottom: 10 }}>
+              <button type="button" className={draft.photoChoice !== "placeholder" ? "selected" : ""} onClick={() => setDraft((prev) => ({ ...prev, photoChoice: photo ? "upload" : "keep" }))}>{photo ? "อัปโหลดรูปใหม่" : record.photo?.downloadUrl ? "ใช้รูปเดิม" : "ส่งรูปถ่าย"}</button>
+              <button type="button" className={draft.photoChoice === "placeholder" ? "selected" : ""} onClick={() => setDraft((prev) => ({ ...prev, photoChoice: "placeholder" }))}>ไม่แสดงรูป (ใช้ภาพคณะ)</button>
             </div>
-            {draft.photoChoice === "upload" && (
-              <input type="file" accept="image/*" onChange={(e) => setPhoto(e.target.files[0] || null)} />
+            {draft.photoChoice !== "placeholder" && (
+              <label
+                className={`file-drop${photoDragOver ? " dragover" : ""}`}
+                onDragOver={(e) => { e.preventDefault(); setPhotoDragOver(true); }}
+                onDragLeave={() => setPhotoDragOver(false)}
+                onDrop={(e) => { e.preventDefault(); setPhotoDragOver(false); choosePhoto(e.dataTransfer.files?.[0] || null); }}
+              >
+                <Upload />
+                <strong>{photo?.name || (record.photo?.downloadUrl ? "มีรูปเดิมอยู่แล้ว — กดหรือลากไฟล์เพื่อเปลี่ยนรูป" : "กดหรือลากไฟล์รูปภาพมาวางที่นี่")}</strong>
+                <small>ระบบจะย่อและปรับไฟล์ให้พร้อมพิมพ์ 300 dpi ให้อัตโนมัติ</small>
+                <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" onChange={(e) => choosePhoto(e.target.files?.[0] || null)} />
+              </label>
             )}
           </div>
 
@@ -833,6 +892,7 @@ function ImportExport({ canReset }) {
   const [exportBatch, setExportBatch] = useState("");
   const [exportStatus, setExportStatus] = useState("");
   const [includeOutreach, setIncludeOutreach] = useState(false);
+  const [replaceMode, setReplaceMode] = useState(false);
   const [progress, setProgress] = useState(null);
 
   const CHUNK_SIZE = 400;
@@ -907,8 +967,16 @@ function ImportExport({ canReset }) {
    */
   async function runImport() {
     if (!previews.length) return setMessage("กรุณากด \"ตรวจสอบไฟล์ก่อน\" ก่อนนำเข้าจริง");
-    const totalUpdated = previews.reduce((sum, j) => sum + (j.updated || 0), 0);
-    if (totalUpdated > 0 && !confirm(`พบข้อมูลซ้ำ ${totalUpdated} รายการ — ต้องการนำเข้าและอัปเดตข้อมูลที่ซ้ำหรือไม่?`)) return;
+
+    if (replaceMode) {
+      const batchesInFiles = [...new Set(previews.flatMap((j) => j.batches || (j.batch ? [j.batch] : [])))];
+      if (!batchesInFiles.length) return setMessage("ไม่พบข้อมูลรุ่นในไฟล์ — ไม่สามารถใช้โหมดลบและลงใหม่ได้");
+      const batchList = batchesInFiles.sort((a, b) => a - b).join(", ");
+      if (!confirm(`โหมด "ลบและลงใหม่" จะลบข้อมูลเดิมทั้งหมดของรุ่น ${batchList} (รวมรูปภาพ) แล้วนำเข้าจาก Excel ใหม่ทั้งหมด\n\nยืนยันหรือไม่?`)) return;
+    } else {
+      const totalUpdated = previews.reduce((sum, j) => sum + (j.updated || 0), 0);
+      if (totalUpdated > 0 && !confirm(`พบข้อมูลซ้ำ ${totalUpdated} รายการ — ต้องการนำเข้าและอัปเดตข้อมูลที่ซ้ำหรือไม่?`)) return;
+    }
 
     const totalEntries = previews.reduce((sum, j) => sum + (j.entries?.length || 0), 0);
     setBusy(true);
@@ -918,6 +986,14 @@ function ImportExport({ canReset }) {
     let globalDone = 0;
     const saved = [];
     try {
+      if (replaceMode) {
+        const batchesInFiles = [...new Set(previews.flatMap((j) => j.batches || (j.batch ? [j.batch] : [])))];
+        setProgress({ phase: "clearing", percent: 0, done: 0, total: totalEntries, label: `ลบข้อมูลเดิมรุ่น ${batchesInFiles.join(", ")}` });
+        for (const batch of batchesInFiles) {
+          await api("/api/admin/import/clear-batch", { method: "POST", body: { batch } });
+        }
+      }
+
       for (const job of previews) {
         const startedAt = new Date().toISOString();
         const entries = job.entries || [];
@@ -958,10 +1034,11 @@ function ImportExport({ canReset }) {
       setResults(saved);
       setPreviews([]);
       setFiles([]);
+      setReplaceMode(false);
       setProgress({ phase: "done", percent: 100, done: totalEntries, total: totalEntries });
     } catch (error) {
       setProgress((current) => (current ? { ...current, phase: "failed" } : null));
-      setMessage(`${describeError(error)} — บันทึกสำเร็จไปแล้ว ${globalDone.toLocaleString("th-TH")} รายการ สามารถกด "นำเข้าจริง" ซ้ำเพื่อทำต่อได้`);
+      setMessage(`${describeError(error)} — บันทึกสำเร็จไปแล้ว ${thai(globalDone)} รายการ สามารถกด "นำเข้าจริง" ซ้ำเพื่อทำต่อได้`);
     } finally {
       setBusy(false);
     }
@@ -1030,6 +1107,10 @@ function ImportExport({ canReset }) {
 
       <div className="button-row">
         <button className="ghost" disabled={busy || !files.length} onClick={check}>1. ตรวจสอบไฟล์ก่อน</button>
+        <label className="checkbox-inline" title="ลบข้อมูลเดิมของรุ่นนั้นทั้งหมด (รวมรูปภาพ) แล้วนำเข้าใหม่จาก Excel">
+          <input type="checkbox" checked={replaceMode} onChange={(e) => setReplaceMode(e.target.checked)} disabled={busy} />
+          ลบและลงใหม่ (เฉพาะรุ่น)
+        </label>
         <button className="next compact-btn" disabled={busy || !previews.length} onClick={runImport}>2. นำเข้าจริง</button>
       </div>
 
@@ -1040,7 +1121,7 @@ function ImportExport({ canReset }) {
           <ImportReport job={p} title={`ผลการตรวจสอบ: ${p.filename} — ยังไม่บันทึก กด "นำเข้าจริง" เพื่อบันทึก`} />
           {p.updated > 0 && (
             <div className="import-warning">
-              <strong>พบข้อมูลซ้ำ {p.updated.toLocaleString("th-TH")} รายการ</strong>
+              <strong>พบข้อมูลซ้ำ {thai(p.updated)} รายการ</strong>
               <span>รายชื่อเหล่านี้มีในระบบแล้ว — หากกด "นำเข้าจริง" ระบบจะอัปเดตข้อมูลพื้นฐาน (ชื่อ, รุ่น, รหัสนิสิต) แต่ข้อมูลที่นิสิตเก่ากรอกไว้แล้วจะไม่ถูกทับ</span>
             </div>
           )}
@@ -1111,6 +1192,7 @@ function RestoreZone({ canReset }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [result, setResult] = useState(null);
+  const [progress, setProgress] = useState(null);
 
   async function restore() {
     if (!file) return;
@@ -1120,15 +1202,49 @@ function RestoreZone({ canReset }) {
     setBusy(true);
     setMessage("");
     setResult(null);
+    setProgress({ stage: "uploading", percent: 0 });
     try {
       const body = new FormData();
       body.append("file", file);
       body.append("mode", mode);
-      const data = await api("/api/admin/restore", { method: "POST", body });
-      setResult(data);
-      setFile(null);
+      const response = await fetch("/api/admin/restore", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.token}` },
+        body
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        let parsed;
+        try { parsed = JSON.parse(text); } catch { parsed = {}; }
+        throw new Error(parsed.message || "เกิดข้อผิดพลาด");
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finalResult = null;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const msg = JSON.parse(line);
+          if (msg.stage === "deleting") setProgress({ stage: "deleting", percent: 0 });
+          else if (msg.stage === "deleted") setProgress({ stage: "deleted", percent: 5 });
+          else if (msg.stage === "writing") setProgress({ stage: "writing", percent: Math.round((msg.written / msg.total) * 95) + 5, written: msg.written, total: msg.total });
+          else if (msg.stage === "done") finalResult = msg;
+        }
+      }
+      if (finalResult) {
+        setResult(finalResult);
+        setProgress(null);
+        setFile(null);
+      }
     } catch (error) {
       setMessage(error.message);
+      setProgress(null);
     } finally {
       setBusy(false);
     }
@@ -1162,6 +1278,19 @@ function RestoreZone({ canReset }) {
           {busy ? "กำลังนำเข้า…" : "นำเข้าฐานข้อมูล"}
         </button>
       </div>
+      {progress && (
+        <div className="progress-section">
+          <div className="progress-bar-track">
+            <div className="progress-bar-fill" style={{ width: `${progress.percent}%` }} />
+          </div>
+          <small className="progress-label">
+            {progress.stage === "uploading" && "กำลังอัปโหลดไฟล์…"}
+            {progress.stage === "deleting" && "กำลังลบข้อมูลเดิม…"}
+            {progress.stage === "deleted" && "ลบข้อมูลเดิมเรียบร้อย กำลังเริ่มนำเข้า…"}
+            {progress.stage === "writing" && `กำลังนำเข้า ${thai(progress.written)} / ${thai(progress.total)} ระเบียน (${progress.percent}%)`}
+          </small>
+        </div>
+      )}
       {message && <p className="error-text">{message}</p>}
       {result && (
         <div className="import-result" style={{ marginTop: "0.5rem" }}>
@@ -1229,9 +1358,9 @@ function ResetInputZone({ canReset }) {
       <Alert>{message}</Alert>
       {result && (
         <Alert tone="ok">
-          ล้างข้อมูลที่กรอกเรียบร้อยแล้ว — รีเซ็ตระเบียน {result.alumni.toLocaleString("th-TH")} รายการ,
-          ข้อมูลที่ส่งเข้ามา {result.submissions.toLocaleString("th-TH")} รายการ,
-          รูปภาพ {result.photos.toLocaleString("th-TH")} ไฟล์ — ระบบพร้อมเริ่มใช้งานจริงจากฐานข้อมูล Excel
+          ล้างข้อมูลที่กรอกเรียบร้อยแล้ว — รีเซ็ตระเบียน {thai(result.alumni)} รายการ,
+          ข้อมูลที่ส่งเข้ามา {thai(result.submissions)} รายการ,
+          รูปภาพ {thai(result.photos)} ไฟล์ — ระบบพร้อมเริ่มใช้งานจริงจากฐานข้อมูล Excel
         </Alert>
       )}
     </div>
@@ -1289,10 +1418,10 @@ function DangerZone({ canReset }) {
       <Alert>{message}</Alert>
       {result && (
         <Alert tone="ok">
-          ล้างข้อมูลเรียบร้อยแล้ว — ระเบียนนิสิตเก่า {result.alumni.toLocaleString("th-TH")} รายการ,
-          ข้อมูลที่ส่งเข้ามา {result.submissions.toLocaleString("th-TH")} รายการ,
-          ประวัติการนำเข้า {result.importJobs.toLocaleString("th-TH")} รายการ,
-          รูปภาพ {result.photos.toLocaleString("th-TH")} ไฟล์ — ระบบพร้อมเริ่มใช้งานจริงแล้ว
+          ล้างข้อมูลเรียบร้อยแล้ว — ระเบียนนิสิตเก่า {thai(result.alumni)} รายการ,
+          ข้อมูลที่ส่งเข้ามา {thai(result.submissions)} รายการ,
+          ประวัติการนำเข้า {thai(result.importJobs)} รายการ,
+          รูปภาพ {thai(result.photos)} ไฟล์ — ระบบพร้อมเริ่มใช้งานจริงแล้ว
         </Alert>
       )}
     </div>
@@ -1311,7 +1440,6 @@ function ProgressBar({ progress }) {
   if (!progress) return null;
   const { phase, percent, done, total } = progress;
   const indeterminate = phase === "reading" || phase === "finishing";
-  const thai = (value) => value.toLocaleString("th-TH");
 
   return (
     <div className={`progress-panel phase-${phase}`}>
@@ -1369,7 +1497,6 @@ function HandoffPanel({ user }) {
   );
 
   const query = applied.trim() ? `?batch=${encodeURIComponent(applied.trim())}` : "";
-  const thai = (value) => Number(value || 0).toLocaleString("th-TH");
   const mb = (bytes) => `${(Number(bytes || 0) / 1024 / 1024).toFixed(1)} MB`;
 
   async function grab(path, filename) {
@@ -1846,28 +1973,51 @@ const ACTION_LABELS = {
   "alumni.import": "นำเข้าข้อมูล",
   "alumni.import.prepare": "ตรวจสอบไฟล์",
   "alumni.submit": "ส่งข้อมูล",
-  "alumni.update": "แก้ไขข้อมูล",
+  "alumni.update": "แก้ไขข้อมูล (admin)",
   "alumni.followUp": "อัปเดตสถานะติดตาม",
   "users.create": "สร้างบัญชีผู้ใช้",
   "users.update": "แก้ไขบัญชีผู้ใช้",
   "users.delete": "ลบบัญชีผู้ใช้",
   "users.resetPassword": "รีเซ็ตรหัสผ่าน",
   "auth.login": "เข้าสู่ระบบ",
+  "auth.login.success": "เข้าสู่ระบบสำเร็จ",
+  "auth.login.failed": "เข้าสู่ระบบล้มเหลว",
   "auth.changePassword": "เปลี่ยนรหัสผ่าน",
   "data.reset": "ล้างข้อมูลทั้งหมด",
   "alumni.delete": "ลบระเบียน",
   "data.resetInput": "ล้างข้อมูลที่กรอก",
+  "data.restore": "นำเข้าจากไฟล์สำรอง",
   "settings.update": "อัปเดตการตั้งค่า",
   "alumni.regenerateCodes": "สร้างรหัสยืนยันใหม่",
+  "alumni.export": "ส่งออก Excel",
+  "public.verify.success": "นิสิตยืนยันตัวตน",
+  "public.verify.failed": "ยืนยันตัวตนล้มเหลว",
+  "public.draft": "นิสิตบันทึกฉบับร่าง",
+  "public.submit": "นิสิตส่งข้อมูล",
+  "public.decline": "นิสิตแจ้งไม่ประสงค์",
 };
+
+const FIELD_LABELS = {
+  currentFirstName: "ชื่อในหนังสือ", currentLastName: "นามสกุลในหนังสือ",
+  legalFirstName: "ชื่อสมัยเรียน", legalLastName: "นามสกุลสมัยเรียน",
+  reportedStudentId: "รหัสนิสิต", reportedEntryYear: "ปีเข้าศึกษา",
+  wasFaculty: "อาจารย์", facultyTitle: "ตำแหน่งวิชาการ",
+  outstandingAlumni: "ศิษย์เก่าดีเด่น", outstandingYear: "ปีที่ได้รับ",
+  contacts: "ช่องทางติดต่อ", photo: "รูปภาพ",
+};
+function formatChangedFields(changed) {
+  if (!changed?.length) return "";
+  return changed.map((f) => FIELD_LABELS[f] || f).join(", ");
+}
 
 function describeAudit(log) {
   const m = log.meta || {};
+  const nameTag = m.name ? `${m.name}${m.batch ? ` (รุ่น ${m.batch})` : ""}` : "";
   switch (log.action) {
     case "alumni.import":
-      return `นำเข้าไฟล์ ${m.filename || "—"}: ${(m.inserted || 0).toLocaleString("th-TH")} รายการใหม่, ${(m.updated || 0).toLocaleString("th-TH")} อัปเดต${m.skipped ? `, ข้าม ${m.skipped}` : ""}`;
+      return `นำเข้าไฟล์ ${m.filename || "—"}: ${thai(m.inserted)} รายการใหม่, ${thai(m.updated)} อัปเดต${m.skipped ? `, ข้าม ${m.skipped}` : ""}`;
     case "alumni.import.prepare":
-      return `ตรวจสอบไฟล์ ${m.filename || "—"}: ${(m.totalRows || 0).toLocaleString("th-TH")} แถว, ผ่าน ${(m.validRows || 0).toLocaleString("th-TH")}${m.skipped ? `, ข้าม ${m.skipped}` : ""}`;
+      return `ตรวจสอบไฟล์ ${m.filename || "—"}: ${thai(m.totalRows)} แถว, ผ่าน ${thai(m.validRows)}${m.skipped ? `, ข้าม ${m.skipped}` : ""}`;
     case "alumni.submit":
       return `ส่งข้อมูลหนังสืออนุสรณ์${m.status === "declined" ? " (แจ้งไม่ประสงค์)" : ""}`;
     case "alumni.followUp":
@@ -1876,10 +2026,32 @@ function describeAudit(log) {
       return `สร้างบัญชี${m.role ? ` (${m.role})` : ""}`;
     case "alumni.delete":
       return `ลบระเบียน ${m.name || "—"} รุ่น ${m.batch || "—"}${m.studentId ? ` (${m.studentId})` : ""}`;
+    case "alumni.update":
+      return `${nameTag}${m.fields?.length ? ` — แก้ไข: ${m.fields.filter((f) => !["updatedAt", "updatedBy", "reviewedBy"].includes(f)).map((f) => FIELD_LABELS[f] || f).join(", ")}` : ""}`;
     case "data.reset":
-      return `ล้างข้อมูล: ${(m.alumni || 0).toLocaleString("th-TH")} ระเบียน, ${(m.photos || 0).toLocaleString("th-TH")} รูป`;
+      return `ล้างข้อมูล: ${thai(m.alumni)} ระเบียน, ${thai(m.photos)} รูป`;
     case "data.resetInput":
-      return `ล้างข้อมูลที่กรอก: ${(m.alumni || 0).toLocaleString("th-TH")} ระเบียน, ${(m.photos || 0).toLocaleString("th-TH")} รูป`;
+      return `ล้างข้อมูลที่กรอก: ${thai(m.alumni)} ระเบียน, ${thai(m.photos)} รูป`;
+    case "data.restore":
+      return `${m.mode === "replace" ? "ทับทั้งหมด" : "อัปเดต"}: ${thai(m.restored)} ระเบียน${m.deleted ? `, ลบเดิม ${m.deleted}` : ""}`;
+    case "alumni.export":
+      return `${thai(m.count)} ระเบียน`;
+    case "public.verify.success":
+      return nameTag || "—";
+    case "public.verify.failed":
+      return `รหัส: ${log.targetId || "—"}`;
+    case "public.draft": {
+      const changed = formatChangedFields(m.changed);
+      return `${nameTag}${changed ? ` — แก้ไข: ${changed}` : ""}`;
+    }
+    case "public.submit": {
+      const changed = formatChangedFields(m.changed);
+      return `${nameTag}${changed ? ` — แก้ไข: ${changed}` : ""}`;
+    }
+    case "public.decline":
+      return nameTag || "—";
+    case "auth.login.failed":
+      return m.reason || "—";
     default:
       return Object.keys(m).length ? JSON.stringify(m) : "—";
   }
@@ -1930,6 +2102,4 @@ function formatTime(value) {
   }
 }
 
-export function signOut() {
-  session.clear();
-}
+

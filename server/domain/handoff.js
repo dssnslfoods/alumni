@@ -85,23 +85,13 @@ export function handoffSummary(rows) {
   };
 }
 
-const CONTACT_LABELS = { facebook: "Facebook", instagram: "Instagram", line: "LINE", phone: "โทรศัพท์" };
+const CONTACT_LABELS = { email: "อีเมล", line: "LINE", phone: "โทรศัพท์" };
 
-function contactValue(record, type) {
-  return (record.contacts || []).find((contact) => contact.type === type)?.value || "";
+function primaryContact(record) {
+  const contact = (record.contacts || [])[0];
+  return contact || null;
 }
 
-function contactText(record) {
-  return (record.contacts || []).map((contact) => `${CONTACT_LABELS[contact.type] || contact.type}: ${contact.value}`).join("  ·  ");
-}
-
-/**
- * Columns shared by the workbook and the data-merge CSV, in layout order.
- *
- * Contacts appear twice on purpose: one column per channel so each can sit
- * beside its own icon in the layout, plus a combined string for designs that
- * print all channels on one line.
- */
 const LAYOUT_COLUMNS = [
   ["ลำดับ", (row) => row.code, 12],
   ["รุ่น", (row) => row.record.batch, 8],
@@ -110,13 +100,11 @@ const LAYOUT_COLUMNS = [
   ["นามสกุล", (row) => row.lastName, 20],
   ["ชื่อ-นามสกุล", (row) => `${row.firstName} ${row.lastName}`, 28],
   ["ชื่อสมัยเรียน", (row) => `${row.record.legalFirstName} ${row.record.legalLastName}`, 28],
+  ["ตำแหน่งวิชาการ", (row) => row.record.wasFaculty ? (row.record.facultyTitle || "อาจารย์") : "", 18],
+  ["ศิษย์เก่าดีเด่น", (row) => row.record.outstandingAlumni ? (row.record.outstandingYear ? `ปี ${row.record.outstandingYear}` : "ใช่") : "", 16],
   ["ประวัติโดยย่อ", (row) => row.record.bio || "", 52],
-  ["Facebook", (row) => contactValue(row.record, "facebook"), 26],
-  ["Instagram", (row) => contactValue(row.record, "instagram"), 24],
-  ["LINE", (row) => contactValue(row.record, "line"), 22],
-  ["โทรศัพท์", (row) => contactValue(row.record, "phone"), 18],
-  ["ช่องทางติดต่อรวม", (row) => contactText(row.record), 44],
-  ["จำนวนช่องทางติดต่อ", (row) => (row.record.contacts || []).length, 20],
+  ["ประเภทช่องทางติดต่อ", (row) => { const c = primaryContact(row.record); return c ? (CONTACT_LABELS[c.type] || c.type) : ""; }, 20],
+  ["ช่องทางติดต่อ", (row) => { const c = primaryContact(row.record); return c?.value || ""; }, 28],
   ["มีรูป", (row) => (row.hasPhoto ? "มี" : "ไม่มี — ใช้ภาพคณะแทน"), 20],
   ["ขนาดพิมพ์สูงสุด", (row) => (row.hasPhoto && row.record.photo?.print ? `${row.record.photo.print.widthMm} x ${row.record.photo.print.heightMm} มม.` : ""), 20],
   ["คุณภาพงานพิมพ์", (row) => (!row.hasPhoto ? "" : row.lowResolution ? "ความละเอียดต่ำ" : "ปกติ"), 18],
@@ -280,13 +268,13 @@ export function buildReadme(rows, { generatedBy, generatedAt, batches } = {}) {
     "หมายเหตุ",
     "-----------------------------------------------------------",
     "* คอลัมน์ ลำดับ (เช่น 45-0012) ตรงกับชื่อไฟล์รูป ใช้ตรวจสอบย้อนกลับได้",
-    "* ช่องทางติดต่อมีให้ทั้งแบบแยกคอลัมน์ (Facebook / Instagram / LINE / โทรศัพท์)",
-    "  สำหรับวางคู่ไอคอนแต่ละช่อง และแบบรวมบรรทัดเดียว (ช่องทางติดต่อรวม)",
-    "  ช่องที่เจ้าตัวไม่ได้ให้ไว้จะเว้นว่าง ให้ซ่อนกรอบนั้นในเลย์เอาต์",
+    "* ช่องทางติดต่อเลือกได้อย่างเดียว (อีเมล / LINE / โทรศัพท์)",
+    "  คอลัมน์ ประเภทช่องทางติดต่อ บอกว่าเป็นช่องทางใด ใช้เลือกไอคอนให้ตรง",
+    "  คอลัมน์ ช่องทางติดต่อ คือค่าที่จะพิมพ์ลงหนังสือ",
     "* คนที่ไม่มีรูป ช่องไฟล์รูปจะว่าง ให้ใช้ภาพคณะแทนตามที่เจ้าตัวเลือกไว้",
     "  รายชื่อทั้งหมดดูได้ในชีต ต้องใช้ภาพคณะแทน",
     "* รูปทุกไฟล์ผ่านการเตรียมสำหรับงานพิมพ์มาแล้ว:",
-    "    - หมุนตาม EXIF ให้ตั้งตรง และย่อให้ด้านยาวไม่เกิน 2000 พิกเซล",
+    "    - หมุนตาม EXIF ให้ตั้งตรง และย่อให้ไม่เกิน 945 x 1259 พิกเซล",
     "    - ฝังความละเอียด 300 dpi ไว้ในไฟล์ วางใน InDesign จะได้ขนาดจริงทันที",
     "    - แปลงเป็น sRGB และใช้ chroma 4:4:4 เพื่อไม่ให้ขอบสีเพี้ยนตอนพิมพ์",
     "    - ลบ metadata ทั้งหมดรวมถึงพิกัด GPS ที่กล้องมือถือฝังมา",

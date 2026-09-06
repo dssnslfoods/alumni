@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { ArrowRight, ChevronLeft, KeyRound, ShieldCheck } from "lucide-react";
+import { ArrowRight, ChevronLeft, Eye, EyeOff, KeyRound, ShieldCheck } from "lucide-react";
 import { Alert, Field, Shell } from "../components/Shell.jsx";
 import { api, session } from "../lib/api.js";
 
 export function Login({ onSignedIn, onClose, notice = "" }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -33,7 +34,11 @@ export function Login({ onSignedIn, onClose, notice = "" }) {
         {notice && <Alert tone="ok">{notice}</Alert>}
         <form onSubmit={signIn}>
           <Field label="ชื่อผู้ใช้" value={username} setValue={setUsername} autoComplete="username" autoFocus />
-          <Field label="รหัสผ่าน" value={password} setValue={setPassword} type="password" autoComplete="current-password" />
+          <Field label="รหัสผ่าน" value={password} setValue={setPassword} type={showPassword ? "text" : "password"} autoComplete="current-password" />
+          <label className="checkbox-inline show-password">
+            <input type="checkbox" checked={showPassword} onChange={(e) => setShowPassword(e.target.checked)} />
+            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />} แสดงรหัสผ่าน
+          </label>
           <button className="next" disabled={busy || !username || !password}>เข้าสู่ระบบ <ArrowRight /></button>
         </form>
         <Alert>{message}</Alert>

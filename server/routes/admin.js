@@ -5,7 +5,7 @@ import { generatePassword, generateVerificationCode } from "../lib/crypto.js";
 import { badRequest, forbidden, notFound, route } from "../lib/http.js";
 import { audit } from "../lib/audit.js";
 import { multipartBody } from "../lib/multipart.js";
-import { bulkSet, countDocs, deleteAllDocs, deleteDoc, listDocs } from "../lib/db.js";
+import { bulkSet, countDocs, deleteAllDocs, deleteDoc, deleteDocsByQuery, listDocs } from "../lib/db.js";
 import { assertBatchAccess, loadUser, requireAuth, requireFreshPassword, requirePermission } from "../middleware/auth.js";
 import {
   ROLES,
@@ -55,7 +55,7 @@ import {
   writeImportRows
 } from "../domain/excel.js";
 import { generateSampleRows } from "../domain/sample-data.js";
-import { deleteAllPhotos, deletePhoto, normalizePhoto, storePhoto } from "../domain/photos.js";
+import { deleteAllPhotos, deletePhoto, deletePhotosByBatch, normalizePhoto, storePhoto } from "../domain/photos.js";
 import {
   buildDataMergeCsv,
   buildHandoffRows,
@@ -272,7 +272,13 @@ router.patch("/alumni/:id", requirePermission("alumni.write"), multipartBody({ m
   if (req.body?.outstandingAlumni !== undefined) patch.outstandingAlumni = String(req.body.outstandingAlumni) === "true";
   if (req.body?.outstandingYear !== undefined) patch.outstandingYear = parseInt(req.body.outstandingYear, 10) || "";
   if (req.body?.bio !== undefined) patch.bio = normalizeText(req.body.bio).slice(0, 500);
-  if (req.body?.contacts !== undefined) patch.contacts = validateContacts(typeof req.body.contacts === "string" ? JSON.parse(req.body.contacts || "[]") : req.body.contacts);
+  if (req.body?.contacts !== undefined) {
+    let rawContacts = req.body.contacts;
+    if (typeof rawContacts === "string") {
+      try { rawContacts = JSON.parse(rawContacts || "[]"); } catch { throw badRequest("ข้อมูลช่องทางติดต่อไม่ถูกต้อง"); }
+    }
+    patch.contacts = validateContacts(rawContacts);
+  }
 
   if (req.body?.status !== undefined) {
     if (!STATUSES.includes(req.body.status)) throw badRequest("สถานะไม่ถูกต้อง");
@@ -296,7 +302,7 @@ router.patch("/alumni/:id", requirePermission("alumni.write"), multipartBody({ m
 
   const updated = await saveAlumni(record.id, patch);
   await syncSubmission({ ...record, ...updated });
-  await audit(req, "alumni.update", { targetType: "alumni", targetId: record.id, meta: { fields: Object.keys(patch) } });
+  await audit(req, "alumni.update", { targetType: "alumni", targetId: record.id, meta: { name: `${record.legalFirstName} ${record.legalLastName}`, batch: record.batch, fields: Object.keys(patch) } });
   res.json({ record: alumniView(updated) });
 }));
 
@@ -410,6 +416,19 @@ router.post("/import/prepare", requirePermission("alumni.import"), multipartBody
     meta: { filename: file.filename, totalRows: parsed.totalRows, validRows: parsed.validRows, skipped: parsed.skipped }
   });
   res.json({ job: { ...parsed, ...counts } });
+}));
+
+/** Step 1.5 — clear all records for a batch before re-importing. */
+router.post("/import/clear-batch", requirePermission("alumni.import"), route(async (req, res) => {
+  const batch = Number(req.body?.batch);
+  if (!batch || batch < 1 || batch > effectiveMaxBatch()) throw badRequest("รุ่นไม่ถูกต้อง");
+  const [alumni, photos] = await Promise.all([
+    deleteDocsByQuery(config.collections.alumni, [["batch", "==", batch]]),
+    deletePhotosByBatch(batch)
+  ]);
+  invalidatePublicStats();
+  await audit(req, "alumni.import.clearBatch", { meta: { batch, alumni, photos } });
+  res.json({ ok: true, batch, deleted: { alumni, photos } });
 }));
 
 /** Step 2 — write one slice. Called repeatedly; each call reports its own counts. */
@@ -588,9 +607,17 @@ router.post("/restore", requirePermission("data.reset"), multipartBody({ maxFile
   const { records, errors, totalRows } = await parseRestoreWorkbook({ buffer: file.buffer, filename: file.filename });
   if (!records.length) throw badRequest("ไม่พบระเบียนที่ใช้ได้ในไฟล์", { errors: errors.slice(0, 50) });
 
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.flushHeaders();
+
+  const send = (obj) => res.write(JSON.stringify(obj) + "\n");
+
   let deletedCount = 0;
   if (mode === "replace") {
+    send({ stage: "deleting" });
     deletedCount = await deleteAllDocs(config.collections.alumni);
+    send({ stage: "deleted", deleted: deletedCount });
   }
 
   const now = new Date().toISOString();
@@ -599,14 +626,22 @@ router.post("/restore", requirePermission("data.reset"), multipartBody({ maxFile
     data: { ...r.data, updatedAt: now, updatedBy: req.user.uid }
   }));
 
-  await bulkSet(config.collections.alumni, documents, { merge: mode === "merge" });
+  const BATCH_SIZE = 100;
+  let written = 0;
+  for (let i = 0; i < documents.length; i += BATCH_SIZE) {
+    const batch = documents.slice(i, i + BATCH_SIZE);
+    await bulkSet(config.collections.alumni, batch, { merge: mode === "merge" });
+    written += batch.length;
+    send({ stage: "writing", written, total: documents.length });
+  }
   invalidatePublicStats();
 
   await audit(req, "data.restore", {
-    meta: { mode, filename: file.originalname, totalRows, restored: records.length, errors: errors.length, deleted: deletedCount }
+    meta: { mode, filename: file.filename, totalRows, restored: records.length, errors: errors.length, deleted: deletedCount }
   });
 
-  res.json({
+  send({
+    stage: "done",
     ok: true,
     mode,
     totalRows,
@@ -615,6 +650,7 @@ router.post("/restore", requirePermission("data.reset"), multipartBody({ maxFile
     deleted: deletedCount,
     sampleErrors: errors.slice(0, 20)
   });
+  res.end();
 }));
 
 /* ----------------------------- danger zone ------------------------------- */
@@ -628,10 +664,10 @@ router.post("/reset-input", requirePermission("data.reset"), route(async (req, r
 
   const before = await countDocs(config.collections.alumni);
   const { alumni } = await resetUserInput();
-  const [submissions, photos] = [
-    await deleteAllDocs(config.collections.submissions),
-    await deleteAllPhotos()
-  ];
+  const [submissions, photos] = await Promise.all([
+    deleteAllDocs(config.collections.submissions),
+    deleteAllPhotos()
+  ]);
 
   invalidatePublicStats();
   await audit(req, "data.resetInput", { meta: { alumni, submissions, photos, before } });
@@ -653,12 +689,12 @@ router.post("/reset", requirePermission("data.reset"), route(async (req, res) =>
   }
 
   const before = await countDocs(config.collections.alumni);
-  const [alumni, submissions, importJobs, photos] = [
-    await deleteAllDocs(config.collections.alumni),
-    await deleteAllDocs(config.collections.submissions),
-    await deleteAllDocs(config.collections.importJobs),
-    await deleteAllPhotos()
-  ];
+  const [alumni, submissions, importJobs, photos] = await Promise.all([
+    deleteAllDocs(config.collections.alumni),
+    deleteAllDocs(config.collections.submissions),
+    deleteAllDocs(config.collections.importJobs),
+    deleteAllPhotos()
+  ]);
 
   invalidatePublicStats();
   await audit(req, "data.reset", { meta: { alumni, submissions, importJobs, photos, before } });

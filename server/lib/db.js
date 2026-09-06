@@ -223,6 +223,29 @@ export async function deleteAllDocs(collection) {
   return deleted;
 }
 
+export async function deleteDocsByQuery(collection, where = []) {
+  if (!firestore) {
+    const documents = readLocal(collection);
+    const toDelete = Object.values(documents).filter((doc) => where.every((clause) => matches(doc, clause)));
+    toDelete.forEach((doc) => delete documents[String(doc.id)]);
+    writeLocal(collection, documents);
+    return toDelete.length;
+  }
+  let deleted = 0;
+  for (;;) {
+    let query = firestore.collection(collection);
+    where.forEach(([field, operator, value]) => { query = query.where(field, operator, value); });
+    const snapshot = await query.limit(500).get();
+    if (snapshot.empty) break;
+    const writer = firestore.bulkWriter();
+    snapshot.docs.forEach((doc) => writer.delete(doc.ref));
+    await writer.close();
+    deleted += snapshot.size;
+    if (snapshot.size < 500) break;
+  }
+  return deleted;
+}
+
 /** Fetch documents by id in chunks — avoids N round trips. */
 export async function getDocsByIds(collection, ids) {
   const unique = [...new Set(ids.map(String).filter(Boolean))];

@@ -83,8 +83,12 @@ function batchClauses(batches) {
 /** Stable document id so re-importing the same sheet updates instead of duplicating. */
 export function alumniId({ studentId, batch, firstName, lastName }) {
   const student = onlyDigits(studentId);
-  if (student) return `s-${student}`;
-  const fingerprint = crypto.createHash("sha1").update(`${batch}|${searchKey(firstName)}|${searchKey(lastName)}`).digest("hex").slice(0, 16);
+  const nameKey = `${searchKey(firstName)}|${searchKey(lastName)}`;
+  if (student) {
+    const fingerprint = crypto.createHash("sha1").update(`${student}|${nameKey}`).digest("hex").slice(0, 8);
+    return `s-${student}-${fingerprint}`;
+  }
+  const fingerprint = crypto.createHash("sha1").update(`${batch}|${nameKey}`).digest("hex").slice(0, 16);
   return `n-${fingerprint}`;
 }
 
@@ -570,12 +574,13 @@ async function fetchByBatches(batches, extraClauses = [], cap = 20000) {
   return [...found.values()].sort(compareForDisplay);
 }
 
+const thaiCollator = new Intl.Collator("th-TH");
+
 /** Batch first, then Thai given name — the order a yearbook is laid out in. */
 export function compareForDisplay(left, right) {
   if (left.batch !== right.batch) return left.batch - right.batch;
-  const collator = new Intl.Collator("th-TH");
-  return collator.compare(left.currentFirstName || left.legalFirstName, right.currentFirstName || right.legalFirstName)
-    || collator.compare(left.currentLastName || left.legalLastName, right.currentLastName || right.legalLastName)
+  return thaiCollator.compare(left.currentFirstName || left.legalFirstName, right.currentFirstName || right.legalFirstName)
+    || thaiCollator.compare(left.currentLastName || left.legalLastName, right.currentLastName || right.legalLastName)
     || String(left.id).localeCompare(String(right.id));
 }
 

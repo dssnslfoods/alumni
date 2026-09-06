@@ -111,9 +111,3 @@ export function generateSampleRows(total = 10000, { seed = 25690816, maxBatch = 
   return rows;
 }
 
-export function summariseSampleRows(rows) {
-  return {
-    total: rows.length,
-    uniqueStudentIds: new Set(rows.map((row) => row["เลขประจำตัวนิสิต"]).filter(Boolean)).size,
-  };
-}

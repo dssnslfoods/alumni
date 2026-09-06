@@ -51,11 +51,6 @@ export function effectiveMaxBatch() {
   return Number.isInteger(value) && value >= 1 ? value : config.maxBatch;
 }
 
-export function effectiveBioMaxLength() {
-  const value = Number(cache.value?.bioMaxLength);
-  return Number.isInteger(value) && value >= 1 ? value : DEFAULTS.bioMaxLength;
-}
-
 export async function updateSettings(patch, actor) {
   const allowed = ["submissionOpen", "closedMessage", "maxBatch", "pdpaVersion", "bookTitle", "bioMaxLength", "followUpOptions"];
   const next = Object.fromEntries(Object.entries(patch).filter(([key]) => allowed.includes(key)));

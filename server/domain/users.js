@@ -19,7 +19,7 @@ const PERMISSIONS = {
   "users.manage": ["owner", "admin"],
   "users.manageAdmins": ["owner"],
   "alumni.read": ["owner", "admin", "staff"],
-  "alumni.write": ["owner", "admin"],
+  "alumni.write": ["owner", "admin", "staff"],
   "alumni.import": ["owner", "admin"],
   "alumni.export": ["owner", "admin"],
   "submissions.review": ["owner", "admin", "staff"],

@@ -3,7 +3,7 @@ import { ArrowRight, Check, ChevronLeft, ImagePlus, Landmark, Mail, Phone, Searc
 import { Alert, Field, Review, Shell } from "../components/Shell.jsx";
 import { api } from "../lib/api.js";
 
-const MAX_PHOTO_EDGE = 2000;
+const MAX_PHOTO_EDGE = 1259;
 
 /** ต้องตรงกับ CONTACT_RULES ที่ server/domain/alumni.js */
 const CONTACT_RULES = {
@@ -63,10 +63,12 @@ export function Yearbook() {
   const [entryYear, setEntryYear] = useState("");
   const [outstandingAlumni, setOutstandingAlumni] = useState(false);
   const [outstandingYear, setOutstandingYear] = useState("");
-  const [pdpa, setPdpa] = useState("");
+  const [pdpa, setPdpa] = useState(false);
   const [notice, setNotice] = useState("");
   const [draftSaved, setDraftSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => () => { if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl); }, [photoPreviewUrl]);
 
   useEffect(() => {
     api("/api/public/settings", { auth: false }).then(setSettings).catch(() => {});
@@ -155,15 +157,15 @@ export function Yearbook() {
       setFacultyTitle(data.alum.facultyTitle || "");
       if (data.alum.facultyTitle && !["ศ.", "รศ.", "ผศ.", "อ.", "ศ.ดร.", "รศ.ดร.", "ผศ.ดร.", "อ.ดร."].includes(data.alum.facultyTitle)) setFacultyTitleOther(true);
       setStudentId(data.alum.reportedStudentId || data.alum.studentId || "");
-      setEntryYear(data.alum.entryYear != null ? String(data.alum.entryYear) : "");
+      setEntryYear(data.alum.reportedEntryYear ? String(data.alum.reportedEntryYear) : data.alum.entryYear ? String(data.alum.entryYear) : "");
       setOutstandingAlumni(!!data.alum.outstandingAlumni);
       setOutstandingYear(data.alum.outstandingYear ? String(data.alum.outstandingYear) : "");
       if (data.alum.photo?.choice) setPhotoChoice(data.alum.photo.choice);
       if (data.alum.contacts?.length) {
-        setSelectedContacts(data.alum.contacts.map((contact) => contact.type));
+        setSelectedContacts([data.alum.contacts[0].type]);
         setContactValues((current) => ({ ...current, ...Object.fromEntries(data.alum.contacts.map((contact) => [contact.type, contact.value])) }));
       }
-      if (data.alum.pdpa?.consent) setPdpa("");
+      if (data.alum.pdpa?.consent) setPdpa(false);
       move(intent === "no" ? 7 : 2);
     });
   };
@@ -245,7 +247,7 @@ export function Yearbook() {
 
   const submit = (event) => {
     event.preventDefault();
-    if (pdpa !== "ยืนยันข้อมูล") return setNotice("กรุณาพิมพ์ \"ยืนยันข้อมูล\" เพื่อยืนยันความถูกต้องและให้ความยินยอม");
+    if (!pdpa) return setNotice("กรุณาติ๊กยืนยันข้อมูลเพื่อยืนยันความถูกต้องและให้ความยินยอม");
     if (photoChoice === "upload" && !photo && !alum?.photo?.downloadUrl) return setNotice("กรุณาเลือกไฟล์รูปภาพ หรือเลือกไม่แสดงรูปในหนังสือ");
     if (selectedContactDetails.some((item) => !item.value.trim())) return setNotice("กรุณากรอกข้อมูลในทุกช่องทางติดต่อที่เลือก");
 
@@ -466,10 +468,10 @@ export function Yearbook() {
                 inputMode="numeric"
               />
             </div>
-            <small className="field-hint">หากไม่ทราบ สามารถเว้นว่างไว้ได้</small>
+            <small className="field-hint">หากไม่ทราบ สามารถเว้นว่างไว้ได้ หรือ ถ้าผิดสามารถแก้ไขได้</small>
           </div>
           <div className="faculty-field">
-            <h3 className="section-title">เคยเป็นอาจารย์ที่คณะหรือไม่</h3>
+            <h3 className="section-title">เคยเป็นอาจารย์ที่คณะเภสัช จุฬา หรือไม่</h3>
             <div className="radio-group">
               <label><input type="radio" name="wasFaculty" checked={!wasFaculty} onChange={() => { setWasFaculty(false); setFacultyTitle(""); }} /> ไม่ใช่</label>
               <label><input type="radio" name="wasFaculty" checked={wasFaculty} onChange={() => setWasFaculty(true)} /> ใช่</label>
@@ -506,6 +508,7 @@ export function Yearbook() {
                 inputMode="numeric"
               />
             </div>
+            <small className="field-hint">หากไม่ถูกต้อง สามารถแก้ไขได้</small>
           </div>
           <div className="outstanding-field">
             <h3 className="section-title">ศิษย์เก่าดีเด่น</h3>
@@ -652,15 +655,15 @@ export function Yearbook() {
             </div>
           )}
           <h3 className="contact-title">เลือกช่องทางติดต่อที่ต้องการแสดง</h3>
-          <p className="contact-help">เลือกได้มากกว่า 1 ช่องทาง หรือเลือกไม่แสดงข้อมูลติดต่อ</p>
+          <p className="contact-help">เลือกได้ 1 ช่องทาง หรือเลือกไม่แสดงข้อมูลติดต่อ</p>
           <div className="contact-options">
             {contactOptions.map(([type, label, Icon]) => (
               <button
                 key={type}
                 className={(type === "none" ? selectedContacts.length === 0 : selectedContacts.includes(type)) ? "selected" : ""}
-                onClick={() => type === "none"
+                onClick={() => type === "none" || selectedContacts.includes(type)
                   ? setSelectedContacts([])
-                  : setSelectedContacts((current) => current.includes(type) ? current.filter((item) => item !== type) : [...current, type])}
+                  : setSelectedContacts([type])}
               >
                 <Icon />{label}
               </button>
@@ -712,9 +715,9 @@ export function Yearbook() {
           <div className="pdpa">
             <h3>การให้ความยินยอมในการเปิดเผยข้อมูลส่วนบุคคล (PDPA)</h3>
             <p>ข้าพเจ้ายินยอมให้สมาคมนิสิตเก่าคณะเภสัชศาสตร์ จุฬาลงกรณ์มหาวิทยาลัย เก็บรวบรวม ใช้ และเปิดเผยชื่อ-นามสกุล ภาพถ่าย ประวัติโดยย่อ และช่องทางติดต่อ (เฉพาะที่ข้าพเจ้าเลือกเปิดเผย) ในหนังสืออนุสรณ์ สภจ. 2569 ข้อมูลจะถูกเก็บตลอดระยะเวลาการจัดทำและเผยแพร่หนังสือ และจะถูกลบเมื่อสิ้นสุดวัตถุประสงค์ ท่านสามารถถอนความยินยอมได้โดยติดต่อผู้ประสานงานหรือตัวแทนรุ่น</p>
-            <label className="confirm-field">
-              <span>พิมพ์ <strong>ยืนยันข้อมูล</strong> เพื่อยืนยันว่าข้อมูลข้างต้นถูกต้องและท่านยินยอมให้เผยแพร่</span>
-              <input type="text" value={pdpa} onChange={(e) => setPdpa(e.target.value)} placeholder="พิมพ์ ยืนยันข้อมูล" autoComplete="off" />
+            <label className="confirm-field checkbox">
+              <input type="checkbox" checked={pdpa} onChange={(e) => setPdpa(e.target.checked)} />
+              <span>ข้าพเจ้ายืนยันว่าข้อมูลข้างต้นถูกต้องและยินยอมให้เผยแพร่</span>
             </label>
           </div>
           {uploadStage && (
@@ -727,7 +730,7 @@ export function Yearbook() {
             </div>
           )}
           <form onSubmit={submit}>
-            <button className="submit" disabled={busy || pdpa !== "ยืนยันข้อมูล"}>
+            <button className="submit" disabled={busy || !pdpa}>
               {busy ? "กำลังส่งข้อมูล…" : <>{editing ? "บันทึกการแก้ไข" : "ยืนยันและส่งข้อมูล"} <Check /></>}
             </button>
           </form>

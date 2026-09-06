@@ -49,13 +49,6 @@ export function parseEntryYearFromFilename(filename) {
   return year >= 2400 && year <= 2600 ? year : null;
 }
 
-/** Generate a 10-digit student ID from batch and sequence: YY + 8-digit padded seq */
-function generateStudentId(batch, seq) {
-  const entryYear = 2481 + batch;
-  const yy = String(entryYear % 100).padStart(2, "0");
-  return `${yy}${String(seq).padStart(8, "0")}`;
-}
-
 function cellText(value) {
   if (value == null) return "";
   if (typeof value === "object") {
@@ -199,10 +192,14 @@ export async function parseImportWorkbook({ buffer, filename }) {
     byId.set(id, item);
   });
 
+  const batches = [...new Set(valid.map((item) => item.value.batch).filter(Boolean))];
+
   return {
     jobId: newId("imp"),
     filename,
     headers,
+    batch: batches.length === 1 ? batches[0] : null,
+    batches,
     totalRows: rows.length,
     validRows: valid.length,
     skipped: invalid.length,
@@ -355,8 +352,12 @@ export async function previewImportCounts(entries) {
 const EXPORT_COLUMNS = [
   ["รหัสระเบียน", (record) => record.id],
   ["เลขประจำตัวนิสิต", (record) => record.studentId || ""],
+  ["เลขประจำตัวนิสิตที่แก้ไข", (record) => record.reportedStudentId || ""],
+  ["ประวัติการแก้รหัสนิสิต", (record) => record.studentIdEdited || ""],
   ["รุ่น", (record) => record.batch],
   ["ปีที่เข้าศึกษา", (record) => record.entryYear || ""],
+  ["ปีที่เข้าศึกษาที่แก้ไข", (record) => record.reportedEntryYear || ""],
+  ["ประวัติการแก้ปีเข้าศึกษา", (record) => record.entryYearEdited || ""],
   ["รหัสยืนยันตัวตน", (record) => record.verificationCode || ""],
   ["คำนำหน้า", (record) => record.title || ""],
   ["ชื่อสมัยเรียน", (record) => record.legalFirstName],
@@ -465,8 +466,12 @@ export async function parseRestoreWorkbook({ buffer, filename }) {
       data: {
         id,
         studentId: onlyDigits(col(row, "เลขประจำตัวนิสิต")),
+        reportedStudentId: col(row, "เลขประจำตัวนิสิตที่แก้ไข"),
+        studentIdEdited: col(row, "ประวัติการแก้รหัสนิสิต"),
         batch,
         entryYear: parseInt(col(row, "ปีที่เข้าศึกษา"), 10) || (2481 + batch),
+        reportedEntryYear: parseInt(col(row, "ปีที่เข้าศึกษาที่แก้ไข"), 10) || "",
+        entryYearEdited: col(row, "ประวัติการแก้ปีเข้าศึกษา"),
         verificationCode: col(row, "รหัสยืนยันตัวตน"),
         title: col(row, "คำนำหน้า"),
         legalFirstName: firstName,

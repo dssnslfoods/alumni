@@ -15,11 +15,11 @@ const ACCEPTED_FORMATS = ["jpeg", "jpg", "png", "webp", "heif", "heic", "avif"];
 const PRINT_DPI = 300;
 
 /**
- * 2000 px on the long edge = 169 mm at 300 dpi, which covers a half-page
- * portrait with room to crop. Yearbook grid portraits are 35-60 mm, so this is
- * generous rather than tight — going larger mostly adds storage cost.
+ * 1259 px on the long edge, 945 px on the short edge.
+ * At 300 dpi this prints at roughly 80 × 107 mm — suitable for yearbook portraits.
  */
-const MAX_EDGE = Number(process.env.PHOTO_MAX_EDGE || 2000);
+const MAX_LONG = Number(process.env.PHOTO_MAX_LONG || 1259);
+const MAX_SHORT = Number(process.env.PHOTO_MAX_SHORT || 945);
 
 /** 90 with 4:4:4 chroma is the usual floor for offset print without visible artefacts. */
 const JPEG_QUALITY = Number(process.env.PHOTO_JPEG_QUALITY || 90);
@@ -30,7 +30,7 @@ const MIN_PRINT_EDGE = Number(process.env.PHOTO_MIN_EDGE || 700);
 /** Smaller than this cannot be printed acceptably at any size. */
 const REJECT_EDGE = 250;
 
-export const printPolicy = { dpi: PRINT_DPI, maxEdge: MAX_EDGE, quality: JPEG_QUALITY, minEdge: MIN_PRINT_EDGE };
+export const printPolicy = { dpi: PRINT_DPI, maxLong: MAX_LONG, maxShort: MAX_SHORT, quality: JPEG_QUALITY, minEdge: MIN_PRINT_EDGE };
 
 const mm = (pixels) => Math.round((pixels / PRINT_DPI) * 25.4);
 
@@ -104,7 +104,7 @@ export async function normalizePhoto(file) {
   try {
     const encoded = await image
       .rotate() // apply EXIF orientation, then drop the tag
-      .resize({ width: MAX_EDGE, height: MAX_EDGE, fit: "inside", withoutEnlargement: true })
+      .resize({ width: MAX_SHORT, height: MAX_LONG, fit: "inside", withoutEnlargement: true })
       // Phone cameras often shoot Display P3; printers expect a known space.
       .toColorspace("srgb")
       .jpeg({
@@ -223,6 +223,18 @@ export async function deleteAllPhotos() {
   }
   const [files] = await storageBucket.getFiles({ prefix: `${config.storageFolder}/` });
   await storageBucket.deleteFiles({ prefix: `${config.storageFolder}/`, force: true });
+  return files.length;
+}
+
+export async function deletePhotosByBatch(batch) {
+  const prefix = `${config.storageFolder}/batch-${String(batch).padStart(2, "0")}/`;
+  if (!storageBucket) {
+    const files = fs.existsSync(uploadsDir) ? fs.readdirSync(uploadsDir).filter((name) => name.startsWith(prefix.replace(/\//g, "__"))) : [];
+    files.forEach((name) => fs.unlinkSync(path.join(uploadsDir, name)));
+    return files.length;
+  }
+  const [files] = await storageBucket.getFiles({ prefix });
+  if (files.length) await storageBucket.deleteFiles({ prefix, force: true });
   return files.length;
 }
 
