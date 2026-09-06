@@ -2,23 +2,15 @@ import { useEffect, useState } from "react";
 import { ArrowRight, Check, ChevronLeft, ImagePlus, Landmark, Mail, Phone, Search, ShieldCheck, Upload, UserRoundCheck, X } from "lucide-react";
 import { Alert, Field, Review, Shell } from "../components/Shell.jsx";
 import { api } from "../lib/api.js";
+import { thai, FACULTY_TITLES, formatPhoneInput } from "../lib/format.js";
 
 const MAX_PHOTO_EDGE = 1259;
 
-/** ต้องตรงกับ CONTACT_RULES ที่ server/domain/alumni.js */
 const CONTACT_RULES = {
   email: { placeholder: "somchai@gmail.com", hint: "อีเมลที่ต้องการให้แสดงในหนังสือ" },
   line: { placeholder: "somchai2569", hint: "ใส่ LINE ID ไม่ต้องใส่ @ (บัญชีทางการให้ใส่ @ ด้วย)" },
   phone: { placeholder: "081-234-5678", hint: "ตัวเลข 9-10 หลัก ระบบจัดรูปแบบให้อัตโนมัติ" }
 };
-
-/** จัดรูปแบบเบอร์ระหว่างพิมพ์ ให้เห็นผลทันทีแบบเดียวกับที่ server จะบันทึก */
-function formatPhoneInput(value) {
-  const digits = String(value).replace(/\D/g, "").slice(0, 10);
-  if (digits.length > 6) return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
-  if (digits.length > 3) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-  return digits;
-}
 
 const steps = ["ความประสงค์", "ค้นหารายชื่อ", "ยืนยันตัวตน", "ข้อมูลหนังสือ", "รูปและติดต่อ", "ยืนยันส่ง"];
 const contactOptions = [
@@ -155,7 +147,7 @@ export function Yearbook() {
       setBio(data.alum.bio || "");
       setWasFaculty(!!data.alum.wasFaculty);
       setFacultyTitle(data.alum.facultyTitle || "");
-      if (data.alum.facultyTitle && !["ศ.", "รศ.", "ผศ.", "อ.", "ศ.ดร.", "รศ.ดร.", "ผศ.ดร.", "อ.ดร."].includes(data.alum.facultyTitle)) setFacultyTitleOther(true);
+      if (data.alum.facultyTitle && !FACULTY_TITLES.includes(data.alum.facultyTitle)) setFacultyTitleOther(true);
       setStudentId(data.alum.reportedStudentId || data.alum.studentId || "");
       setEntryYear(data.alum.reportedEntryYear ? String(data.alum.reportedEntryYear) : data.alum.entryYear ? String(data.alum.entryYear) : "");
       setOutstandingAlumni(!!data.alum.outstandingAlumni);
@@ -809,7 +801,6 @@ export function Yearbook() {
 function StatsTicker({ stats }) {
   if (!stats || !stats.submitted) return null;
 
-  const thai = (value) => Number(value || 0).toLocaleString("th-TH");
   const items = [
     { icon: "✦", text: <>ยืนยันลงหนังสือแล้ว <strong>{thai(stats.submitted)}</strong> คน จากทั้งหมด <strong>{thai(stats.roster)}</strong> คน (<strong>{stats.rate}%</strong>)</> }
   ];

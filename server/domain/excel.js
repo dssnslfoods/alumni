@@ -388,7 +388,10 @@ const EXPORT_COLUMNS = [
   ["PDPA", (record) => (record.pdpa?.consent ? "ยินยอม" : "ยังไม่ยินยอม")],
   ["เวลาที่ยินยอม", (record) => record.pdpa?.consentAt || ""],
   ["เวอร์ชันคำยินยอม", (record) => record.pdpa?.version || ""],
-  ["เวลาที่ส่งข้อมูล", (record) => record.submittedAt || ""]
+  ["เวลาที่ส่งข้อมูล", (record) => record.submittedAt || ""],
+  ["ตรวจสอบและอนุมัติ", (record) => record.approval?.approved ? "อนุมัติแล้ว" : ""],
+  ["อนุมัติโดย", (record) => record.approval?.approved ? `${record.approval.approvedBy || ""} (${record.approval.approvedRole || ""})` : ""],
+  ["เวลาที่อนุมัติ", (record) => record.approval?.approvedAt || ""]
 ];
 
 /** Follow-up columns. Only added when an administrator explicitly asks for them. */

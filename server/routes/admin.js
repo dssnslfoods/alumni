@@ -519,13 +519,11 @@ router.get("/export.xlsx", requirePermission("alumni.export"), route(async (req,
 
 /* --------------------- handoff package for the design team ---------------- */
 
-/**
- * Only records the alumnus actually confirmed go to the design team — a
- * "pending" record has no consent behind it and must never be laid out.
- */
+/** Records that were self-submitted or approved by admin/staff. */
 async function handoffRowsFor(req) {
   const batches = requestedBatches(req);
-  const records = await listAllAlumni({ batches, status: "submitted" });
+  const all = await listAllAlumni({ batches });
+  const records = all.filter((r) => r.status === "submitted" || r.approval?.approved);
   return { batches, rows: buildHandoffRows(records) };
 }
 
@@ -536,7 +534,7 @@ router.get("/handoff/summary", requirePermission("alumni.export"), route(async (
 
 router.get("/handoff/data.xlsx", requirePermission("alumni.export"), route(async (req, res) => {
   const { batches, rows } = await handoffRowsFor(req);
-  if (!rows.length) throw badRequest("ยังไม่มีข้อมูลที่ยืนยันแล้วสำหรับส่งมอบ");
+  if (!rows.length) throw badRequest("ยังไม่มีข้อมูลที่ยืนยันหรืออนุมัติแล้วสำหรับส่งมอบ");
   await audit(req, "handoff.data", { meta: { count: rows.length, batches: batches.length ? batches : "all" } });
   res.setHeader("Content-Disposition", "attachment; filename=yearbook-2569-handoff.xlsx");
   res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -545,7 +543,7 @@ router.get("/handoff/data.xlsx", requirePermission("alumni.export"), route(async
 
 router.get("/handoff/data-merge.csv", requirePermission("alumni.export"), route(async (req, res) => {
   const { batches, rows } = await handoffRowsFor(req);
-  if (!rows.length) throw badRequest("ยังไม่มีข้อมูลที่ยืนยันแล้วสำหรับส่งมอบ");
+  if (!rows.length) throw badRequest("ยังไม่มีข้อมูลที่ยืนยันหรืออนุมัติแล้วสำหรับส่งมอบ");
   await audit(req, "handoff.csv", { meta: { count: rows.length, batches: batches.length ? batches : "all" } });
   res.setHeader("Content-Disposition", "attachment; filename=data-merge.csv");
   res.type("text/csv; charset=utf-8").send(buildDataMergeCsv(rows));

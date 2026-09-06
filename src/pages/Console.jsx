@@ -28,8 +28,7 @@ import {
 } from "lucide-react";
 import { Alert, Field, Shell } from "../components/Shell.jsx";
 import { api, download, session } from "../lib/api.js";
-
-const thai = (value) => Number(value || 0).toLocaleString("th-TH");
+import { thai, FACULTY_TITLES, formatPhoneInput, formatPhone, formatTime } from "../lib/format.js";
 const ROLE_LABELS = { owner: "เจ้าของระบบ", admin: "ผู้ดูแลระบบ", staff: "ตัวแทนรุ่น", alumni: "นิสิตเก่า" };
 const STATUS_LABELS = { pending: "ยังไม่ตอบ", submitted: "ยืนยันแล้ว", declined: "ไม่ประสงค์ลง" };
 
@@ -564,7 +563,7 @@ function AlumniTable({ user }) {
             <thead>
               <tr>
               <th>รุ่น</th><th>ชื่อสมัยเรียน</th><th>รหัสยืนยัน</th><th>ชื่อในหนังสือ</th><th>สถานะส่งข้อมูล</th>
-              <th>รูป</th><th>ข้อมูลติดต่อ</th><th>สถานะติดตาม</th><th>ตรวจทาน</th>
+              <th>รูป</th><th>ข้อมูลติดต่อ</th><th>สถานะติดตาม</th><th>ตรวจทานและอนุมัติ</th>
               {canEdit && <th></th>}
             </tr>
             </thead>
@@ -660,7 +659,7 @@ function EditAlumniModal({ record, onClose, onSaved }) {
     entryYear: record.entryYear ? String(record.entryYear) : "",
     wasFaculty: !!record.wasFaculty,
     facultyTitle: record.facultyTitle || "",
-    facultyTitleOther: !!(record.facultyTitle && !["ศ.", "รศ.", "ผศ.", "อ.", "ศ.ดร.", "รศ.ดร.", "ผศ.ดร.", "อ.ดร."].includes(record.facultyTitle)),
+    facultyTitleOther: !!(record.facultyTitle && !FACULTY_TITLES.includes(record.facultyTitle)),
     outstandingAlumni: !!record.outstandingAlumni,
     outstandingYear: record.outstandingYear ? String(record.outstandingYear) : "",
     selectedContact: (record.contacts || [])[0]?.type || "",
@@ -785,7 +784,7 @@ function EditAlumniModal({ record, onClose, onSaved }) {
             <Field
               label={{ email: "อีเมล", line: "LINE ID", phone: "เบอร์โทร" }[draft.selectedContact]}
               value={draft.contactValues[draft.selectedContact] || ""}
-              setValue={(v) => { const fmt = draft.selectedContact === "phone" ? (() => { const d = String(v).replace(/\D/g, "").slice(0, 10); if (d.length > 6) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`; if (d.length > 3) return `${d.slice(0, 3)}-${d.slice(3)}`; return d; })() : v; setDraft((prev) => ({ ...prev, contactValues: { ...prev.contactValues, [prev.selectedContact]: fmt } })); }}
+              setValue={(v) => { const fmt = draft.selectedContact === "phone" ? formatPhoneInput(v) : v; setDraft((prev) => ({ ...prev, contactValues: { ...prev.contactValues, [prev.selectedContact]: fmt } })); }}
               placeholder={{ email: "somchai@gmail.com", line: "somchai2569", phone: "081-234-5678" }[draft.selectedContact]}
               inputMode={draft.selectedContact === "phone" ? "tel" : draft.selectedContact === "email" ? "email" : "text"}
             />
@@ -997,10 +996,10 @@ function ImportExport({ canReset }) {
       const batchesInFiles = [...new Set(previews.flatMap((j) => j.batches || (j.batch ? [j.batch] : [])))];
       if (!batchesInFiles.length) return setMessage("ไม่พบข้อมูลรุ่นในไฟล์ — ไม่สามารถใช้โหมดลบและลงใหม่ได้");
       const batchList = batchesInFiles.sort((a, b) => a - b).join(", ");
-      if (!confirm(`โหมด "ลบและลงใหม่" จะลบข้อมูลเดิมทั้งหมดของรุ่น ${batchList} (รวมรูปภาพ) แล้วนำเข้าจาก Excel ใหม่ทั้งหมด\n\nยืนยันหรือไม่?`)) return;
+      if (!window.confirm(`โหมด "ลบและลงใหม่" จะลบข้อมูลเดิมทั้งหมดของรุ่น ${batchList} (รวมรูปภาพ) แล้วนำเข้าจาก Excel ใหม่ทั้งหมด\n\nยืนยันหรือไม่?`)) return;
     } else {
       const totalUpdated = previews.reduce((sum, j) => sum + (j.updated || 0), 0);
-      if (totalUpdated > 0 && !confirm(`พบข้อมูลซ้ำ ${totalUpdated} รายการ — ต้องการนำเข้าและอัปเดตข้อมูลที่ซ้ำหรือไม่?`)) return;
+      if (totalUpdated > 0 && !window.confirm(`พบข้อมูลซ้ำ ${totalUpdated} รายการ — ต้องการนำเข้าและอัปเดตข้อมูลที่ซ้ำหรือไม่?`)) return;
     }
 
     const totalEntries = previews.reduce((sum, j) => sum + (j.entries?.length || 0), 0);
@@ -1161,7 +1160,7 @@ function ImportExport({ canReset }) {
         ใช้เมื่อนำเข้าข้อมูลใหม่แล้วต้องการอัปเดตรหัสให้ตรงรูปแบบ หรือเมื่อต้องการรีเซ็ตรหัสทั้งหมด
       </p>
       <button className="ghost" disabled={busy} onClick={async () => {
-        if (!confirm("สร้างรหัสยืนยันตัวตนใหม่ทั้งหมด? รหัสเดิมจะใช้ไม่ได้อีก")) return;
+        if (!window.confirm("สร้างรหัสยืนยันตัวตนใหม่ทั้งหมด? รหัสเดิมจะใช้ไม่ได้อีก")) return;
         setBusy(true); setMessage("");
         try {
           const res = await api("/api/admin/regenerate-codes", { method: "POST" });
@@ -2109,22 +2108,6 @@ function AuditLog() {
       )}
     </div>
   );
-}
-
-function formatPhone(digits) {
-  const value = String(digits || "").replace(/\D/g, "");
-  if (value.length === 10) return `${value.slice(0, 3)}-${value.slice(3, 6)}-${value.slice(6)}`;
-  if (value.length === 9) return `${value.slice(0, 2)}-${value.slice(2, 5)}-${value.slice(5)}`;
-  return value || "—";
-}
-
-function formatTime(value) {
-  if (!value) return "—";
-  try {
-    return new Date(value).toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" });
-  } catch {
-    return value;
-  }
 }
 
 
