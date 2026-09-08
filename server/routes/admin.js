@@ -240,8 +240,15 @@ router.patch("/users/:uid", requirePermission("users.manage"), route(async (req,
     patch.tokenVersion = (target.tokenVersion || 1) + 1;
   }
 
+  const changes = {};
+  for (const key of Object.keys(patch)) {
+    if (key === "tokenVersion") continue;
+    const oldVal = Array.isArray(target[key]) ? target[key].join(", ") : (target[key] ?? "");
+    const newVal = Array.isArray(patch[key]) ? patch[key].join(", ") : (patch[key] ?? "");
+    if (String(oldVal) !== String(newVal)) changes[key] = { from: oldVal, to: newVal };
+  }
   const updated = await updateUser(target.id, patch, req.user.uid);
-  await audit(req, "users.update", { targetType: "user", targetId: target.id, meta: { fields: Object.keys(patch) } });
+  await audit(req, "users.update", { targetType: "user", targetId: target.id, meta: { username: target.username, fields: Object.keys(patch), changes } });
   res.json({ user: publicUser(updated) });
 }));
 
@@ -252,7 +259,7 @@ router.post("/users/:uid/reset-password", requirePermission("users.manage"), rou
 
   const password = String(req.body?.password || "").trim() || generatePassword(14);
   await setPassword(target.id, password, { mustChangePassword: true, actorUid: req.user.uid });
-  await audit(req, "users.resetPassword", { targetType: "user", targetId: target.id });
+  await audit(req, "users.resetPassword", { targetType: "user", targetId: target.id, meta: { username: target.username } });
   res.json({ ok: true, temporaryPassword: req.body?.password ? null : password });
 }));
 

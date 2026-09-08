@@ -2245,6 +2245,11 @@ function formatChangedFields(changed) {
   return changed.map((f) => FIELD_LABELS[f] || f).join(", ");
 }
 
+const USER_FIELD_LABELS = {
+  displayName: "ชื่อที่แสดง", role: "บทบาท", batchScope: "รุ่นที่ดูแล",
+  email: "อีเมล", phone: "เบอร์ติดต่อ", status: "สถานะ", alumniId: "ผูกกับนิสิตเก่า"
+};
+
 function describeAudit(log) {
   const m = log.meta || {};
   const nameTag = m.name ? `${m.name}${m.batch ? ` (รุ่น ${m.batch})` : ""}` : "";
@@ -2258,7 +2263,19 @@ function describeAudit(log) {
     case "alumni.followUp":
       return `อัปเดตสถานะ: ${m.state || "—"}`;
     case "users.create":
-      return `สร้างบัญชี${m.role ? ` (${m.role})` : ""}`;
+      return `สร้างบัญชี ${m.username || ""}${m.role ? ` (${m.role})` : ""}`;
+    case "users.update": {
+      const who = m.username ? `@${m.username}` : "";
+      if (m.changes && Object.keys(m.changes).length) {
+        const detail = Object.entries(m.changes).map(([k, v]) => `${USER_FIELD_LABELS[k] || k}: "${v.from || "—"}" → "${v.to || "—"}"`).join(", ");
+        return `${who} — ${detail}`;
+      }
+      return `${who}${m.fields?.length ? ` — แก้ไข: ${m.fields.map((f) => USER_FIELD_LABELS[f] || f).join(", ")}` : ""}`;
+    }
+    case "users.delete":
+      return `ลบบัญชี ${m.username || ""}`;
+    case "users.resetPassword":
+      return m.username ? `@${m.username}` : "—";
     case "alumni.delete":
       return `ลบระเบียน ${m.name || "—"} รุ่น ${m.batch || "—"}${m.studentId ? ` (${m.studentId})` : ""}`;
     case "alumni.update":
