@@ -660,8 +660,9 @@ router.get("/handoff/photos.zip", requirePermission("alumni.export"), route(asyn
   if (batch === null) throw badRequest("กรุณาระบุรุ่นที่ต้องการดาวน์โหลดรูป ครั้งละหนึ่งรุ่น");
   assertBatchAccess(req.user, batch);
 
-  const records = await listAllAlumni({ batches: [batch], status: "submitted" });
-  const rows = buildHandoffRows(records);
+  const all = await listAllAlumni({ batches: [batch] });
+  const approved = all.filter((r) => r.approval?.approved);
+  const rows = buildHandoffRows(approved);
   const withPhotos = rows.filter((row) => row.hasPhoto);
   if (!withPhotos.length) throw badRequest(`รุ่น ${batch} ยังไม่มีรูปถ่ายที่ส่งเข้ามา`);
 
