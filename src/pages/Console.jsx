@@ -1717,7 +1717,7 @@ function HandoffPanel({ user }) {
         <button className="ghost" onClick={reload}><RefreshCw /> รีเฟรช</button>
       </div>
       <p className="panel-note">
-        ชุดส่งมอบมีเฉพาะผู้ที่ <strong>ยืนยันลงหนังสือแล้ว</strong> เท่านั้น — คนที่ยังไม่ตอบหรือไม่ประสงค์ลงจะไม่ถูกรวม
+        ชุดส่งมอบมีเฉพาะผู้ที่ <strong>ผ่านการตรวจสอบและอนุมัติแล้ว</strong> เท่านั้น — คนที่ยังไม่อนุมัติจะไม่ถูกรวม
         <br />
         ชื่อไฟล์รูปตรงกับคอลัมน์ <strong>ไฟล์รูป</strong> ในไฟล์ข้อมูล ทีมออกแบบจึงวางรูปอัตโนมัติด้วย InDesign Data Merge ได้เลย ไม่ต้องจับคู่เอง
       </p>
@@ -1737,8 +1737,40 @@ function HandoffPanel({ user }) {
 
       {loading ? <p className="console-loading">กำลังรวบรวมข้อมูล…</p> : (
         <>
+          <h4>สถานะการอนุมัติรายรุ่น</h4>
+          <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr><th>รุ่น</th><th>ทั้งหมด</th><th>กรอกข้อมูลแล้ว</th><th>อนุมัติแล้ว</th><th>ความคืบหน้า</th><th>สถานะ</th></tr>
+            </thead>
+            <tbody>
+              {(data?.batches || []).map((item) => {
+                const pct = item.totalInBatch ? Math.round((item.approvedInBatch / item.totalInBatch) * 100) : 0;
+                const ready = item.approvedInBatch > 0 && item.approvedInBatch === item.submittedInBatch;
+                return (
+                  <tr key={`approval-${item.batch}`}>
+                    <td>รุ่น {item.batch}</td>
+                    <td>{thai(item.totalInBatch)}</td>
+                    <td>{thai(item.submittedInBatch)}</td>
+                    <td>{thai(item.approvedInBatch)}</td>
+                    <td>
+                      <div className="progress-track" style={{ height: "8px", marginBottom: 0 }}>
+                        <div className="progress-fill" style={{ width: `${pct}%`, backgroundColor: ready ? "var(--color-success)" : undefined }} />
+                      </div>
+                      <small>{pct}%</small>
+                    </td>
+                    <td>{ready ? <span className="badge badge-approved">พร้อมส่งมอบ</span> : <span className="badge badge-pending">รออนุมัติ</span>}</td>
+                  </tr>
+                );
+              })}
+              {!data?.batches?.length && <tr><td colSpan="6" className="empty">ยังไม่มีข้อมูล</td></tr>}
+            </tbody>
+          </table>
+          </div>
+
+          <h4>สรุปชุดส่งมอบ (เฉพาะที่อนุมัติแล้ว)</h4>
           <div className="stat-cards">
-            <div><span>ยืนยันลงหนังสือ</span><strong>{thai(totals?.people)}</strong></div>
+            <div><span>อนุมัติแล้ว</span><strong>{thai(totals?.people)}</strong></div>
             <div><span>ส่งรูปถ่ายแล้ว</span><strong>{thai(totals?.photos)}</strong></div>
             <div><span>ใช้ภาพคณะแทน</span><strong>{thai(totals?.placeholders)}</strong></div>
             <div><span>ขนาดรูปรวม</span><strong>{mb(totals?.bytes)}</strong></div>

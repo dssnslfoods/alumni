@@ -620,8 +620,27 @@ async function handoffRowsFor(req) {
 }
 
 router.get("/handoff/summary", requirePermission("alumni.export"), route(async (req, res) => {
-  const { batches, rows } = await handoffRowsFor(req);
-  res.json({ batches, ...handoffSummary(rows) });
+  const reqBatches = requestedBatches(req);
+  const all = await listAllAlumni({ batches: reqBatches });
+  const approved = all.filter((r) => r.approval?.approved);
+  const rows = buildHandoffRows(approved);
+  const summary = handoffSummary(rows);
+
+  const batchStats = new Map();
+  all.forEach((r) => {
+    const b = r.batch || 0;
+    const s = batchStats.get(b) || { total: 0, submitted: 0, approved: 0 };
+    s.total += 1;
+    if (r.status === "submitted" || r.dataEnteredBy || r.updatedBy === "self") s.submitted += 1;
+    if (r.approval?.approved) s.approved += 1;
+    batchStats.set(b, s);
+  });
+  summary.batches.forEach((item) => {
+    const s = batchStats.get(item.batch);
+    if (s) { item.totalInBatch = s.total; item.submittedInBatch = s.submitted; item.approvedInBatch = s.approved; }
+  });
+
+  res.json({ batches: reqBatches, ...summary });
 }));
 
 router.get("/handoff/data.xlsx", requirePermission("alumni.export"), route(async (req, res) => {
