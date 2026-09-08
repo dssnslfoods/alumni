@@ -69,7 +69,6 @@ router.get("/settings", route(async (_req, res) => {
     closedMessage: settings.closedMessage,
     maxBatch: settings.maxBatch,
     bookTitle: settings.bookTitle,
-    bioMaxLength: settings.bioMaxLength,
     pdpaVersion: settings.pdpaVersion
   });
 }));
@@ -169,7 +168,6 @@ router.post("/decline", route(async (req, res) => {
     status: "declined",
     declinedAt: now,
     photo: null,
-    bio: "",
     wasFaculty: false,
     facultyTitle: "",
     contacts: [],
@@ -277,7 +275,6 @@ router.post("/submit", multipartBody({ maxFiles: 1 }), route(async (req, res) =>
   const lastName = normalizeText(req.body?.currentLastName);
   const newLegalFirst = normalizeText(req.body?.legalFirstName);
   const newLegalLast = normalizeText(req.body?.legalLastName);
-  const bio = normalizeText(req.body?.bio);
   const wasFaculty = String(req.body?.wasFaculty) === "yes";
   const facultyTitle = wasFaculty ? normalizeText(req.body?.facultyTitle) : "";
   const studentIdRaw = normalizeText(req.body?.reportedStudentId);
@@ -300,7 +297,6 @@ router.post("/submit", multipartBody({ maxFiles: 1 }), route(async (req, res) =>
 
   if (!firstName || !lastName) throw badRequest("กรุณาระบุชื่อและนามสกุลที่จะใช้ในหนังสือ");
   if (firstName.length > 80 || lastName.length > 80) throw badRequest("ชื่อหรือนามสกุลยาวเกินไป");
-  if (bio.length > settings.bioMaxLength) throw badRequest(`ประวัติโดยย่อต้องไม่เกิน ${settings.bioMaxLength} ตัวอักษร`);
   if (String(req.body?.pdpaConsent) !== "yes") throw badRequest("ต้องได้รับความยินยอม PDPA ก่อนบันทึกข้อมูล");
   if (photoChoice === "upload" && !uploaded && !record.photo?.storagePath) throw badRequest("กรุณาอัปโหลดรูปภาพ หรือเลือกไม่แสดงรูป");
 
@@ -328,7 +324,6 @@ router.post("/submit", multipartBody({ maxFiles: 1 }), route(async (req, res) =>
     currentFirstName: firstName,
     currentLastName: lastName,
     nameHistory: legalChanged ? (record.nameHistory || []) : appendNameHistory(record, firstName, lastName, "self"),
-    bio,
     wasFaculty,
     facultyTitle,
     reportedStudentId,

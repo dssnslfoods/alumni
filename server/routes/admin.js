@@ -357,7 +357,6 @@ router.patch("/alumni/:id", requirePermission("alumni.write"), multipartBody({ m
   if (req.body?.facultyTitle !== undefined) patch.facultyTitle = normalizeText(req.body.facultyTitle);
   if (req.body?.outstandingAlumni !== undefined) patch.outstandingAlumni = String(req.body.outstandingAlumni) === "true";
   if (req.body?.outstandingYear !== undefined) patch.outstandingYear = parseInt(req.body.outstandingYear, 10) || "";
-  if (req.body?.bio !== undefined) patch.bio = normalizeText(req.body.bio).slice(0, 500);
   if (req.body?.contacts !== undefined) {
     let rawContacts = req.body.contacts;
     if (typeof rawContacts === "string") {

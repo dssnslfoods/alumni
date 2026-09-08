@@ -82,8 +82,9 @@ const FOLLOW_UP_LABELS = {
 };
 
 export function Console({ user, onSignOut, onChangePassword }) {
-  const canManageUsers = ["owner", "admin"].includes(user.role);
-  const canImport = ["owner", "admin"].includes(user.role);
+  const isAdmin = ["owner", "admin"].includes(user.role);
+  const canManageUsers = isAdmin;
+  const canImport = isAdmin;
 
   const tabs = useMemo(() => [
     { key: "overview", label: "ภาพรวม", icon: LayoutDashboard, show: true },
@@ -217,7 +218,6 @@ function Overview({ user }) {
             total={data.submitted}
             items={[
               { label: "มีรูปถ่าย", value: data.withPhoto },
-              { label: "มีประวัติโดยย่อ", value: data.withBio },
               { label: "เคยเป็นอาจารย์", value: data.faculty },
               { label: "มีช่องทางติดต่อ", value: data.withContacts }
             ]}
@@ -1521,24 +1521,22 @@ function RestoreZone({ canReset, askPassword }) {
   );
 }
 
-/** Reset user-entered data while keeping Excel-imported base records. */
-function ResetInputZone({ canReset, askPassword }) {
+function ResetZone({ canReset, askPassword, config }) {
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [result, setResult] = useState(null);
-  const PHRASE = "ล้างข้อมูลที่กรอก";
 
   async function reset() {
-    if (!window.confirm("ยืนยันล้างข้อมูลที่นิสิตเก่ากรอกเข้ามา?\n\nข้อมูลพื้นฐานจากไฟล์ Excel (ชื่อ-นามสกุล, รุ่น, รหัสนิสิต) จะยังคงอยู่\nแต่ข้อมูลที่กรอกผ่านระบบ (รูปถ่าย, ช่องทางติดต่อ, ข้อมูลประวัติ, สถานะการส่ง) จะถูกรีเซ็ต")) return;
+    if (!window.confirm(config.confirmMsg)) return;
     let pw;
     try { pw = await askPassword(); } catch { return; }
     setBusy(true);
     setMessage("");
     setResult(null);
     try {
-      const data = await api("/api/admin/reset-input", { method: "POST", body: { confirm, confirmPassword: pw } });
-      setResult(data.reset);
+      const data = await api(config.endpoint, { method: "POST", body: { confirm, confirmPassword: pw } });
+      setResult(config.resultKey ? data[config.resultKey] : data);
       setConfirm("");
     } catch (error) {
       setMessage(error.message);
@@ -1548,102 +1546,63 @@ function ResetInputZone({ canReset, askPassword }) {
   }
 
   return (
-    <div className="danger-zone" style={{ borderColor: "#d4a843" }}>
-      <h3>ล้างข้อมูลที่กรอกผ่านระบบ (เริ่มใช้งานจริง)</h3>
-      <p className="panel-note">
-        ใช้เมื่อทดสอบระบบ (UAT) เสร็จแล้ว ต้องการเริ่มใช้งานจริงโดยเก็บฐานข้อมูลจากไฟล์ Excel ไว้
-        <br />
-        <strong>จะถูกล้าง:</strong> รูปถ่าย, ช่องทางติดต่อ, ข้อมูลประวัติ, สถานะการส่ง, ความยินยอม PDPA, สถานะการติดตาม
-        <br />
-        <strong>จะไม่ถูกล้าง:</strong> ระเบียนนิสิตเก่า (ชื่อ, นามสกุล, รุ่น, รหัสนิสิต), บัญชีผู้ใช้ระบบ, รหัสยืนยันตัวตน
-        <br />
-        การกระทำนี้ <strong>ย้อนกลับไม่ได้</strong>
-      </p>
+    <div className="danger-zone" style={config.borderColor ? { borderColor: config.borderColor } : undefined}>
+      <h3>{config.title}</h3>
+      <p className="panel-note">{config.description}</p>
       {canReset ? (
         <div className="filters">
-          <Field label={`พิมพ์ "${PHRASE}" เพื่อยืนยัน`} value={confirm} setValue={setConfirm} placeholder={PHRASE} />
-          <button className="danger-btn compact-btn" style={{ background: "#b8860b", borderColor: "#b8860b" }} disabled={busy || confirm.trim() !== PHRASE} onClick={reset}>
-            <RotateCcw /> {busy ? "กำลังล้างข้อมูล…" : "ล้างข้อมูลที่กรอก"}
+          <Field label={`พิมพ์ "${config.phrase}" เพื่อยืนยัน`} value={confirm} setValue={setConfirm} placeholder={config.phrase} />
+          <button className="danger-btn compact-btn" style={config.btnStyle} disabled={busy || confirm.trim() !== config.phrase} onClick={reset}>
+            {config.icon} {busy ? "กำลังล้างข้อมูล…" : config.btnLabel}
           </button>
         </div>
       ) : (
-        <Alert tone="warn">
-          บัญชีของท่านไม่มีสิทธิ์ล้างข้อมูล — ทำได้เฉพาะเจ้าของระบบและผู้ดูแลระบบเท่านั้น
-        </Alert>
+        <Alert tone="warn">บัญชีของท่านไม่มีสิทธิ์ล้างข้อมูล — ทำได้เฉพาะเจ้าของระบบและผู้ดูแลระบบเท่านั้น</Alert>
       )}
       <Alert>{message}</Alert>
-      {result && (
-        <Alert tone="ok">
-          ล้างข้อมูลที่กรอกเรียบร้อยแล้ว — รีเซ็ตระเบียน {thai(result.alumni)} รายการ,
-          ข้อมูลที่ส่งเข้ามา {thai(result.submissions)} รายการ,
-          รูปภาพ {thai(result.photos)} ไฟล์ — ระบบพร้อมเริ่มใช้งานจริงจากฐานข้อมูล Excel
-        </Alert>
-      )}
+      {result && <Alert tone="ok">{config.successMsg(result)}</Alert>}
     </div>
   );
 }
 
-/** Owner-only wipe, used to clear test data before the real round begins. */
-function DangerZone({ canReset, askPassword }) {
-  const [confirm, setConfirm] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const [result, setResult] = useState(null);
-  const PHRASE = "ล้างข้อมูลทั้งหมด";
+function ResetInputZone(props) {
+  return <ResetZone {...props} config={{
+    title: "ล้างข้อมูลที่กรอกผ่านระบบ (เริ่มใช้งานจริง)",
+    description: <>
+      ใช้เมื่อทดสอบระบบ (UAT) เสร็จแล้ว ต้องการเริ่มใช้งานจริงโดยเก็บฐานข้อมูลจากไฟล์ Excel ไว้
+      <br /><strong>จะถูกล้าง:</strong> รูปถ่าย, ช่องทางติดต่อ, ข้อมูลประวัติ, สถานะการส่ง, ความยินยอม PDPA, สถานะการติดตาม
+      <br /><strong>จะไม่ถูกล้าง:</strong> ระเบียนนิสิตเก่า (ชื่อ, นามสกุล, รุ่น, รหัสนิสิต), บัญชีผู้ใช้ระบบ, รหัสยืนยันตัวตน
+      <br />การกระทำนี้ <strong>ย้อนกลับไม่ได้</strong>
+    </>,
+    phrase: "ล้างข้อมูลที่กรอก",
+    confirmMsg: "ยืนยันล้างข้อมูลที่นิสิตเก่ากรอกเข้ามา?\n\nข้อมูลพื้นฐานจากไฟล์ Excel (ชื่อ-นามสกุล, รุ่น, รหัสนิสิต) จะยังคงอยู่\nแต่ข้อมูลที่กรอกผ่านระบบ (รูปถ่าย, ช่องทางติดต่อ, ข้อมูลประวัติ, สถานะการส่ง) จะถูกรีเซ็ต",
+    endpoint: "/api/admin/reset-input",
+    resultKey: "reset",
+    borderColor: "#d4a843",
+    btnStyle: { background: "#b8860b", borderColor: "#b8860b" },
+    icon: <RotateCcw />,
+    btnLabel: "ล้างข้อมูลที่กรอก",
+    successMsg: (r) => <>ล้างข้อมูลที่กรอกเรียบร้อยแล้ว — รีเซ็ตระเบียน {thai(r.alumni)} รายการ, ข้อมูลที่ส่งเข้ามา {thai(r.submissions)} รายการ, รูปภาพ {thai(r.photos)} ไฟล์ — ระบบพร้อมเริ่มใช้งานจริงจากฐานข้อมูล Excel</>
+  }} />;
+}
 
-  async function reset() {
-    if (!window.confirm(`ยืนยันล้างข้อมูลนิสิตเก่าทั้งหมด?\n\nการกระทำนี้ย้อนกลับไม่ได้ และจะลบระเบียนนิสิตเก่า ข้อมูลที่ส่งเข้ามา ประวัติการนำเข้า และรูปภาพทั้งหมด`)) return;
-    let pw;
-    try { pw = await askPassword(); } catch { return; }
-    setBusy(true);
-    setMessage("");
-    setResult(null);
-    try {
-      const data = await api("/api/admin/reset", { method: "POST", body: { confirm, confirmPassword: pw } });
-      setResult(data.deleted);
-      setConfirm("");
-    } catch (error) {
-      setMessage(error.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="danger-zone">
-      <h3>ล้างข้อมูลทั้งหมด</h3>
-      <p className="panel-note">
-        ใช้เมื่อทดสอบระบบเสร็จแล้วและต้องการเริ่มใช้งานจริงจากฐานข้อมูลว่าง
-        <br />
-        <strong>จะถูกลบ:</strong> ระเบียนนิสิตเก่า ข้อมูลที่นิสิตเก่าส่งเข้ามา ประวัติการนำเข้า และรูปภาพทั้งหมดใน Storage
-        <br />
-        <strong>จะไม่ถูกลบ:</strong> บัญชีผู้ใช้ระบบ การตั้งค่า และบันทึกการใช้งาน
-        <br />
-        การกระทำนี้ <strong>ย้อนกลับไม่ได้</strong> และทำได้เฉพาะเจ้าของระบบเท่านั้น
-      </p>
-      {canReset ? (
-        <div className="filters">
-          <Field label={`พิมพ์ "${PHRASE}" เพื่อยืนยัน`} value={confirm} setValue={setConfirm} placeholder={PHRASE} />
-          <button className="danger-btn compact-btn" disabled={busy || confirm.trim() !== PHRASE} onClick={reset}>
-            <Trash2 /> {busy ? "กำลังล้างข้อมูล…" : "ล้างข้อมูลทั้งหมด"}
-          </button>
-        </div>
-      ) : (
-        <Alert tone="warn">
-          บัญชีของท่านไม่มีสิทธิ์ล้างข้อมูล — ทำได้เฉพาะเจ้าของระบบและผู้ดูแลระบบเท่านั้น
-        </Alert>
-      )}
-      <Alert>{message}</Alert>
-      {result && (
-        <Alert tone="ok">
-          ล้างข้อมูลเรียบร้อยแล้ว — ระเบียนนิสิตเก่า {thai(result.alumni)} รายการ,
-          ข้อมูลที่ส่งเข้ามา {thai(result.submissions)} รายการ,
-          ประวัติการนำเข้า {thai(result.importJobs)} รายการ,
-          รูปภาพ {thai(result.photos)} ไฟล์ — ระบบพร้อมเริ่มใช้งานจริงแล้ว
-        </Alert>
-      )}
-    </div>
-  );
+function DangerZone(props) {
+  return <ResetZone {...props} config={{
+    title: "ล้างข้อมูลทั้งหมด",
+    description: <>
+      ใช้เมื่อทดสอบระบบเสร็จแล้วและต้องการเริ่มใช้งานจริงจากฐานข้อมูลว่าง
+      <br /><strong>จะถูกลบ:</strong> ระเบียนนิสิตเก่า ข้อมูลที่นิสิตเก่าส่งเข้ามา ประวัติการนำเข้า และรูปภาพทั้งหมดใน Storage
+      <br /><strong>จะไม่ถูกลบ:</strong> บัญชีผู้ใช้ระบบ การตั้งค่า และบันทึกการใช้งาน
+      <br />การกระทำนี้ <strong>ย้อนกลับไม่ได้</strong> และทำได้เฉพาะเจ้าของระบบเท่านั้น
+    </>,
+    phrase: "ล้างข้อมูลทั้งหมด",
+    confirmMsg: "ยืนยันล้างข้อมูลนิสิตเก่าทั้งหมด?\n\nการกระทำนี้ย้อนกลับไม่ได้ และจะลบระเบียนนิสิตเก่า ข้อมูลที่ส่งเข้ามา ประวัติการนำเข้า และรูปภาพทั้งหมด",
+    endpoint: "/api/admin/reset",
+    resultKey: "deleted",
+    icon: <Trash2 />,
+    btnLabel: "ล้างข้อมูลทั้งหมด",
+    successMsg: (r) => <>ล้างข้อมูลเรียบร้อยแล้ว — ระเบียนนิสิตเก่า {thai(r.alumni)} รายการ, ข้อมูลที่ส่งเข้ามา {thai(r.submissions)} รายการ, ประวัติการนำเข้า {thai(r.importJobs)} รายการ, รูปภาพ {thai(r.photos)} ไฟล์ — ระบบพร้อมเริ่มใช้งานจริงแล้ว</>
+  }} />;
 }
 
 const PROGRESS_LABELS = {
@@ -2150,13 +2109,6 @@ function SettingsPanel() {
             hint="(รุ่นล่าสุดของสมาคม — ใช้ตรวจทุกจุดที่กรอกรุ่น)"
             inputMode="numeric"
           />
-          <Field
-            label="ความยาวประวัติสูงสุด"
-            value={String(draft.bioMaxLength)}
-            setValue={(value) => setDraft({ ...draft, bioMaxLength: Number(value.replace(/\D/g, "")) || 500 })}
-            hint="(จำนวนตัวอักษรของประวัติโดยย่อ)"
-            inputMode="numeric"
-          />
           <Field label="เวอร์ชันคำยินยอม PDPA" value={draft.pdpaVersion} setValue={(value) => setDraft({ ...draft, pdpaVersion: value })} hint="(เปลี่ยนเมื่อแก้ข้อความคำยินยอม)" />
         </div>
 
@@ -2263,10 +2215,7 @@ function describeAudit(log) {
       return nameTag || "—";
     case "public.verify.failed":
       return `รหัส: ${log.targetId || "—"}`;
-    case "public.draft": {
-      const changed = formatChangedFields(m.changed);
-      return `${nameTag}${changed ? ` — แก้ไข: ${changed}` : ""}`;
-    }
+    case "public.draft":
     case "public.submit": {
       const changed = formatChangedFields(m.changed);
       return `${nameTag}${changed ? ` — แก้ไข: ${changed}` : ""}`;

@@ -102,7 +102,6 @@ const LAYOUT_COLUMNS = [
   ["ชื่อสมัยเรียน", (row) => `${row.record.legalFirstName} ${row.record.legalLastName}`, 28],
   ["ตำแหน่งวิชาการ", (row) => row.record.wasFaculty ? (row.record.facultyTitle || "อาจารย์") : "", 18],
   ["ศิษย์เก่าดีเด่น", (row) => row.record.outstandingAlumni ? (row.record.outstandingYear ? `ปี ${row.record.outstandingYear}` : "ใช่") : "", 16],
-  ["ประวัติโดยย่อ", (row) => row.record.bio || "", 52],
   ["ประเภทช่องทางติดต่อ", (row) => { const c = primaryContact(row.record); return c ? (CONTACT_LABELS[c.type] || c.type) : ""; }, 20],
   ["ช่องทางติดต่อ", (row) => { const c = primaryContact(row.record); return c?.value || ""; }, 28],
   ["มีรูป", (row) => (row.hasPhoto ? "มี" : "ไม่มี — ใช้ภาพคณะแทน"), 20],

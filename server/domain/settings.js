@@ -10,7 +10,6 @@ const DEFAULTS = {
   maxBatch: config.maxBatch,
   pdpaVersion: config.pdpaVersion,
   bookTitle: "หนังสืออนุสรณ์ สภจ. 2569",
-  bioMaxLength: 500,
   updatedAt: "",
   updatedBy: ""
 };
@@ -52,7 +51,7 @@ export function effectiveMaxBatch() {
 }
 
 export async function updateSettings(patch, actor) {
-  const allowed = ["submissionOpen", "closedMessage", "maxBatch", "pdpaVersion", "bookTitle", "bioMaxLength", "followUpOptions"];
+  const allowed = ["submissionOpen", "closedMessage", "maxBatch", "pdpaVersion", "bookTitle", "followUpOptions"];
   const next = Object.fromEntries(Object.entries(patch).filter(([key]) => allowed.includes(key)));
 
   if (next.maxBatch !== undefined) {
@@ -62,14 +61,6 @@ export async function updateSettings(patch, actor) {
     }
     next.maxBatch = maxBatch;
   }
-  if (next.bioMaxLength !== undefined) {
-    const bioMaxLength = Number(next.bioMaxLength);
-    if (!Number.isInteger(bioMaxLength) || bioMaxLength < 50 || bioMaxLength > 2000) {
-      throw badRequest("ความยาวประวัติสูงสุดต้องอยู่ระหว่าง 50-2,000 ตัวอักษร");
-    }
-    next.bioMaxLength = bioMaxLength;
-  }
-
   if (next.followUpOptions !== undefined) {
     if (!Array.isArray(next.followUpOptions)) throw badRequest("ตัวเลือกสถานะติดตามต้องเป็น array");
     next.followUpOptions = next.followUpOptions

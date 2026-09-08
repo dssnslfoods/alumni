@@ -557,7 +557,6 @@ export async function parseRestoreWorkbook({ buffer, filename }) {
         },
         submittedAt: col(row, "เวลาที่ส่งข้อมูล"),
         nameHistory: [],
-        bio: "",
         outreach: { email: "", phone: "", note: "" }
       }
     });

@@ -41,8 +41,8 @@ app.get("/api/health", route(async (_req, res) => {
   });
 }));
 
-// Keep the cached settings fresh so synchronous validators (the batch ceiling,
-// the bio length) enforce what the administrator configured, not the env default.
+// Keep the cached settings fresh so synchronous validators (the batch ceiling)
+// enforce what the administrator configured, not the env default.
 app.use("/api", route(async (_req, _res, next) => {
   await primeSettings();
   next();

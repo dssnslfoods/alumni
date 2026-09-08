@@ -129,7 +129,6 @@ export function defaultSubmissionFields({ firstName, lastName }) {
     status: "pending",
     photo: null,
     contacts: [],
-    bio: "",
     wasFaculty: false,
     pdpa: { consent: false, consentAt: "", version: "" },
     submittedAt: "",
@@ -468,7 +467,6 @@ export async function alumniSummary() {
   let withPhoto = 0;
   let withoutPhoto = 0;
   let withContacts = 0;
-  let withBio = 0;
   let faculty = 0;
   let nameChanged = 0;
   let photoBytes = 0;
@@ -489,7 +487,6 @@ export async function alumniSummary() {
         withoutPhoto += 1;
       }
       if ((record.contacts || []).length) withContacts += 1;
-      if ((record.bio || "").trim()) withBio += 1;
       if (record.wasFaculty) faculty += 1;
       if ((record.nameHistory || []).length) nameChanged += 1;
       if (record.submittedAt) recent.push({ at: record.submittedAt, batch: record.batch });
@@ -525,7 +522,6 @@ export async function alumniSummary() {
     withPhoto,
     withoutPhoto,
     withContacts,
-    withBio,
     faculty,
     nameChanged,
     photoBytes,

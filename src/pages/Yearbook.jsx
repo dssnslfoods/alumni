@@ -21,7 +21,7 @@ const contactOptions = [
 ];
 
 export function Yearbook() {
-  const [settings, setSettings] = useState({ maxBatch: 88, bioMaxLength: 500, submissionOpen: true, closedMessage: "" });
+  const [settings, setSettings] = useState({ maxBatch: 88, submissionOpen: true, closedMessage: "" });
   const [step, setStep] = useState(0);
   const [intent, setIntent] = useState("yes");
   const [repBatch, setRepBatch] = useState("");
@@ -47,7 +47,6 @@ export function Yearbook() {
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState(null);
   const [selectedContacts, setSelectedContacts] = useState([]);
   const [contactValues, setContactValues] = useState({ email: "", line: "", phone: "" });
-  const [bio, setBio] = useState("");
   const [wasFaculty, setWasFaculty] = useState(false);
   const [facultyTitle, setFacultyTitle] = useState("");
   const [facultyTitleOther, setFacultyTitleOther] = useState(false);
@@ -144,7 +143,6 @@ export function Yearbook() {
       setLastName(data.alum.currentLastName || data.alum.legalLastName);
       setLegalFirst(data.alum.legalFirstName);
       setLegalLast(data.alum.legalLastName);
-      setBio(data.alum.bio || "");
       setWasFaculty(!!data.alum.wasFaculty);
       setFacultyTitle(data.alum.facultyTitle || "");
       if (data.alum.facultyTitle && !FACULTY_TITLES.includes(data.alum.facultyTitle)) setFacultyTitleOther(true);
@@ -211,8 +209,7 @@ export function Yearbook() {
     });
   };
 
-  async function saveDraft() {
-    if (!submitToken) return;
+  function buildFormData() {
     const body = new FormData();
     body.append("currentFirstName", firstName);
     body.append("currentLastName", lastName);
@@ -227,8 +224,13 @@ export function Yearbook() {
     body.append("contacts", JSON.stringify(selectedContactDetails.map(({ type, value }) => ({ type, value }))));
     body.append("photoChoice", photoChoice);
     if (photo) body.append("photo", photo);
+    return body;
+  }
+
+  async function saveDraft() {
+    if (!submitToken) return;
     try {
-      await api("/api/public/draft", { method: "POST", auth: false, headers: { "x-submit-token": submitToken }, body });
+      await api("/api/public/draft", { method: "POST", auth: false, headers: { "x-submit-token": submitToken }, body: buildFormData() });
     } catch { /* draft save is best-effort */ }
   }
 
@@ -243,22 +245,8 @@ export function Yearbook() {
     if (photoChoice === "upload" && !photo && !alum?.photo?.downloadUrl) return setNotice("กรุณาเลือกไฟล์รูปภาพ หรือเลือกไม่แสดงรูปในหนังสือ");
     if (selectedContactDetails.some((item) => !item.value.trim())) return setNotice("กรุณากรอกข้อมูลในทุกช่องทางติดต่อที่เลือก");
 
-    const body = new FormData();
-    body.append("currentFirstName", firstName);
-    body.append("currentLastName", lastName);
-    body.append("legalFirstName", legalFirst);
-    body.append("legalLastName", legalLast);
-    body.append("reportedStudentId", studentId);
-    body.append("entryYear", entryYear);
-    body.append("outstandingAlumni", outstandingAlumni ? "yes" : "no");
-    if (outstandingAlumni) body.append("outstandingYear", outstandingYear || "");
-    body.append("photoChoice", photoChoice);
-    body.append("contacts", JSON.stringify(selectedContactDetails.map(({ type, value }) => ({ type, value }))));
-    body.append("bio", bio);
-    body.append("wasFaculty", wasFaculty ? "yes" : "no");
-    if (wasFaculty && facultyTitle) body.append("facultyTitle", facultyTitle);
+    const body = buildFormData();
     body.append("pdpaConsent", "yes");
-    if (photo) body.append("photo", photo);
 
     return run(async () => {
       setUploadStage(photo ? "uploading" : "saving");
