@@ -94,6 +94,28 @@ function primaryContact(record) {
 
 const HIGHLIGHT_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF3CD" } };
 const HIGHLIGHT_HEADER_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFC107" } };
+const HEADER_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2E5939" } };
+const HEADER_FONT = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+const STRIPE_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF5F5F5" } };
+const BORDER_THIN = { style: "thin", color: { argb: "FFD9D9D9" } };
+const BORDERS = { top: BORDER_THIN, bottom: BORDER_THIN, left: BORDER_THIN, right: BORDER_THIN };
+const DATA_FONT = { size: 10 };
+
+function styleSheet(sheet, rowCount, { headerFill = HEADER_FILL, headerFont = HEADER_FONT } = {}) {
+  const row1 = sheet.getRow(1);
+  row1.font = headerFont;
+  row1.fill = headerFill;
+  row1.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+  row1.height = 28;
+  for (let c = 1; c <= sheet.columnCount; c++) row1.getCell(c).border = BORDERS;
+  for (let r = 2; r <= rowCount + 1; r++) {
+    const row = sheet.getRow(r);
+    row.font = DATA_FONT;
+    row.alignment = { vertical: "middle" };
+    if (r % 2 === 0) row.fill = STRIPE_FILL;
+    for (let c = 1; c <= sheet.columnCount; c++) row.getCell(c).border = BORDERS;
+  }
+}
 
 const LAYOUT_COLUMNS = [
   ["ลำดับ", (row) => row.code, 12],
@@ -129,18 +151,25 @@ export async function buildHandoffWorkbook(rows, { generatedBy, generatedAt } = 
   const sheet = workbook.addWorksheet("ข้อมูลสำหรับจัดหน้า", { views: [{ state: "frozen", ySplit: 1 }] });
   sheet.columns = LAYOUT_COLUMNS.map(([header, , width]) => ({ header, key: header, width }));
   rows.forEach((row) => sheet.addRow(Object.fromEntries(LAYOUT_COLUMNS.map(([header, read]) => [header, read(row)]))));
-  sheet.getRow(1).font = { bold: true };
-  sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF2E7D5" } };
   sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: LAYOUT_COLUMNS.length } };
+  styleSheet(sheet, rows.length);
 
   const highlightCols = LAYOUT_COLUMNS.map(([, , , opts], i) => (opts?.highlight ? i + 1 : null)).filter(Boolean);
   highlightCols.forEach((col) => {
     sheet.getRow(1).getCell(col).fill = HIGHLIGHT_HEADER_FILL;
-    for (let r = 2; r <= rows.length + 1; r++) sheet.getRow(r).getCell(col).fill = HIGHLIGHT_FILL;
+    sheet.getRow(1).getCell(col).font = { bold: true, size: 11 };
+    for (let r = 2; r <= rows.length + 1; r++) {
+      const cell = sheet.getRow(r).getCell(col);
+      cell.fill = HIGHLIGHT_FILL;
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+    }
   });
 
   rows.forEach((row, index) => {
-    if (!row.hasPhoto) sheet.getRow(index + 2).getCell(LAYOUT_COLUMNS.length).font = { color: { argb: "FFA73F3A" } };
+    if (!row.hasPhoto) {
+      const cell = sheet.getRow(index + 2).getCell(LAYOUT_COLUMNS.length);
+      cell.font = { size: 10, color: { argb: "FFA73F3A" }, bold: true };
+    }
   });
 
   const summary = handoffSummary(rows);
@@ -162,14 +191,17 @@ export async function buildHandoffWorkbook(rows, { generatedBy, generatedAt } = 
     folder: `photos/${photoFolder(item.batch)}`
   }));
   overview.addRow({});
-  overview.addRow({
+  const totalRow = overview.addRow({
     batch: "รวม",
     people: summary.totals.people,
     photos: summary.totals.photos,
     placeholders: summary.totals.placeholders,
     size: Number((summary.totals.bytes / 1024 / 1024).toFixed(2))
-  }).font = { bold: true };
-  overview.getRow(1).font = { bold: true };
+  });
+  totalRow.font = { bold: true, size: 11 };
+  totalRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8F5E9" } };
+  for (let c = 1; c <= overview.columnCount; c++) totalRow.getCell(c).border = BORDERS;
+  styleSheet(overview, summary.batches.length);
 
   const missing = workbook.addWorksheet("ต้องใช้ภาพคณะแทน");
   missing.columns = [
@@ -178,13 +210,14 @@ export async function buildHandoffWorkbook(rows, { generatedBy, generatedAt } = 
     { header: "ชื่อ-นามสกุล", key: "name", width: 30 },
     { header: "เหตุผล", key: "reason", width: 34 }
   ];
-  rows.filter((row) => !row.hasPhoto).forEach((row) => missing.addRow({
+  const missingRows = rows.filter((row) => !row.hasPhoto);
+  missingRows.forEach((row) => missing.addRow({
     code: row.code,
     batch: row.record.batch,
     name: `${row.firstName} ${row.lastName}`,
     reason: row.record.photo?.choice === "placeholder" ? "เจ้าตัวเลือกไม่แสดงรูป" : "ยังไม่ได้ส่งรูป"
   }));
-  missing.getRow(1).font = { bold: true };
+  styleSheet(missing, missingRows.length, { headerFill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFC62828" } } });
 
   const lowRes = workbook.addWorksheet("รูปความละเอียดต่ำ");
   lowRes.columns = [
@@ -195,7 +228,8 @@ export async function buildHandoffWorkbook(rows, { generatedBy, generatedAt } = 
     { header: "พิมพ์ได้สูงสุด", key: "mm", width: 20 },
     { header: "ไฟล์รูป", key: "file", width: 46 }
   ];
-  rows.filter((row) => row.lowResolution).forEach((row) => lowRes.addRow({
+  const lowResRows = rows.filter((row) => row.lowResolution);
+  lowResRows.forEach((row) => lowRes.addRow({
     code: row.code,
     batch: row.record.batch,
     name: `${row.firstName} ${row.lastName}`,
@@ -203,11 +237,11 @@ export async function buildHandoffWorkbook(rows, { generatedBy, generatedAt } = 
     mm: `${row.record.photo.print.widthMm} x ${row.record.photo.print.heightMm} มม.`,
     file: row.photoPath
   }));
-  lowRes.getRow(1).font = { bold: true };
+  styleSheet(lowRes, lowResRows.length, { headerFill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFE65100" } } });
 
   const info = workbook.addWorksheet("ข้อมูลชุดส่งมอบ");
-  info.columns = [{ width: 26 }, { width: 60 }];
-  [
+  info.columns = [{ width: 28 }, { width: 60 }];
+  const infoRows = [
     ["สร้างเมื่อ", generatedAt || new Date().toISOString()],
     ["สร้างโดย", generatedBy || "-"],
     ["จำนวนคนทั้งหมด", summary.totals.people],
@@ -217,8 +251,16 @@ export async function buildHandoffWorkbook(rows, { generatedBy, generatedAt } = 
     ["ความละเอียดรูป", "ทุกไฟล์ฝัง 300 dpi ไว้แล้ว วางใน InDesign จะได้ขนาดจริงทันที"],
     ["คอลัมน์ไฟล์รูป", "ตรงกับ path ในโฟลเดอร์ photos/ ของไฟล์ ZIP รูปภาพ"],
     ["หมายเหตุ", "ไฟล์นี้ไม่มีรหัสเข้าและไม่มีอีเมล/เบอร์โทรที่ใช้ติดตามงานภายใน"]
-  ].forEach((pair) => info.addRow(pair));
-  info.getColumn(1).font = { bold: true };
+  ];
+  infoRows.forEach(([label, value]) => {
+    const row = info.addRow([label, value]);
+    row.getCell(1).font = { bold: true, size: 11, color: { argb: "FF2E5939" } };
+    row.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8F5E9" } };
+    row.getCell(2).font = { size: 11 };
+    row.getCell(1).border = BORDERS;
+    row.getCell(2).border = BORDERS;
+    row.height = 24;
+  });
 
   return workbook.xlsx.writeBuffer();
 }

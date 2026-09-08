@@ -19,6 +19,26 @@ import {
   searchKey
 } from "./alumni.js";
 
+const BORDER_THIN = { style: "thin", color: { argb: "FFD9D9D9" } };
+const BORDERS = { top: BORDER_THIN, bottom: BORDER_THIN, left: BORDER_THIN, right: BORDER_THIN };
+
+function styleExportSheet(sheet, rowCount) {
+  const row1 = sheet.getRow(1);
+  row1.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+  row1.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2E5939" } };
+  row1.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+  row1.height = 28;
+  for (let c = 1; c <= sheet.columnCount; c++) row1.getCell(c).border = BORDERS;
+  const stripe = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF5F5F5" } };
+  for (let r = 2; r <= rowCount + 1; r++) {
+    const row = sheet.getRow(r);
+    row.font = { size: 10 };
+    row.alignment = { vertical: "middle" };
+    if (r % 2 === 0) row.fill = stripe;
+    for (let c = 1; c <= sheet.columnCount; c++) row.getCell(c).border = BORDERS;
+  }
+}
+
 const savedCodes = new Map();
 
 export async function saveVerificationCodes(batch) {
@@ -430,10 +450,9 @@ export async function buildExportWorkbook(records, { includeOutreach = false } =
   const worksheet = workbook.addWorksheet("yearbook-2569");
   worksheet.columns = columns.map(([header]) => ({ header, key: header, width: Math.max(16, header.length + 6) }));
   records.forEach((record) => worksheet.addRow(Object.fromEntries(columns.map(([header, read]) => [header, read(record)]))));
-  worksheet.getRow(1).font = { bold: true };
-  worksheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF2E7D5" } };
   worksheet.views = [{ state: "frozen", ySplit: 1 }];
   worksheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: columns.length } };
+  styleExportSheet(worksheet, records.length);
   return workbook.xlsx.writeBuffer();
 }
 
@@ -466,9 +485,8 @@ export async function buildCodesWorkbook(records) {
       lastName: r.legalLastName,
       code: r.verificationCode || ""
     }));
-    ws.getRow(1).font = { bold: true };
-    ws.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF2E7D5" } };
     ws.views = [{ state: "frozen", ySplit: 1 }];
+    styleExportSheet(ws, rows.length);
   }
 
   return workbook.xlsx.writeBuffer();
