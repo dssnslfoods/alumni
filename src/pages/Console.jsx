@@ -1856,7 +1856,29 @@ function UserManager({ user }) {
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(null);
 
+  const [sortBy, setSortBy] = useState("username");
+  const [sortDir, setSortDir] = useState("asc");
   const assignableRoles = Object.keys(ROLE_LABELS).filter((role) => role !== "owner" && (user.role === "owner" || role !== "admin"));
+
+  function toggleSort(field) {
+    if (sortBy === field) setSortDir(sortDir === "asc" ? "desc" : "asc");
+    else { setSortBy(field); setSortDir("asc"); }
+  }
+  function sortedUsers(users) {
+    const list = [...users];
+    const dir = sortDir === "asc" ? 1 : -1;
+    list.sort((a, b) => {
+      if (sortBy === "batch") {
+        const ab = (a.batchScope || [])[0] || 9999;
+        const bb = (b.batchScope || [])[0] || 9999;
+        return (ab - bb) * dir;
+      }
+      if (sortBy === "role") return (String(a.role).localeCompare(String(b.role))) * dir;
+      return String(a.username).localeCompare(String(b.username)) * dir;
+    });
+    return list;
+  }
+  const sortArrow = (field) => sortBy === field ? (sortDir === "asc" ? " ▲" : " ▼") : "";
 
   function beginEdit(item) {
     setMessage("");
@@ -2049,9 +2071,15 @@ function UserManager({ user }) {
       {loading ? <p className="console-loading">กำลังโหลด…</p> : (
         <div className="table-wrap">
         <table className="data-table">
-          <thead><tr><th>ชื่อผู้ใช้</th><th>ชื่อที่แสดง</th><th>บทบาท</th><th>รุ่นที่ดูแล</th><th>ผูกกับนิสิตเก่า</th><th>เบอร์ติดต่อ</th><th>สถานะ</th><th>เข้าใช้ล่าสุด</th><th>จัดการ</th></tr></thead>
+          <thead><tr>
+            <th className="sortable" onClick={() => toggleSort("username")}>ชื่อผู้ใช้{sortArrow("username")}</th>
+            <th>ชื่อที่แสดง</th>
+            <th className="sortable" onClick={() => toggleSort("role")}>บทบาท{sortArrow("role")}</th>
+            <th className="sortable" onClick={() => toggleSort("batch")}>รุ่นที่ดูแล{sortArrow("batch")}</th>
+            <th>ผูกกับนิสิตเก่า</th><th>เบอร์ติดต่อ</th><th>สถานะ</th><th>เข้าใช้ล่าสุด</th><th>จัดการ</th>
+          </tr></thead>
           <tbody>
-            {(data?.users || []).map((item) => (
+            {sortedUsers(data?.users || []).map((item) => (
               <tr key={item.uid}>
                 <td>{item.username}{item.mustChangePassword && <small className="pending-flag"> ยังไม่ตั้งรหัสผ่าน</small>}</td>
                 <td>{item.displayName}</td>
