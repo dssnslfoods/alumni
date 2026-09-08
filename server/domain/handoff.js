@@ -108,13 +108,10 @@ const LAYOUT_COLUMNS = [
     const changed = (r.currentFirstName && r.currentFirstName !== r.legalFirstName) || (r.currentLastName && r.currentLastName !== r.legalLastName);
     return changed ? "ใช่" : "";
   }, 10, { highlight: true }],
-  ["ประวัติการแก้ชื่อ", (row) => {
-    const history = row.record.nameHistory || [];
-    return history.map((h) => h.fullName).join(", ");
-  }, 30, { highlight: true }],
   ["เคยเป็นอาจารย์", (row) => row.record.wasFaculty ? "ใช่" : "", 14, { highlight: true }],
   ["ตำแหน่งวิชาการ", (row) => row.record.wasFaculty ? (row.record.facultyTitle || "อาจารย์") : "", 18],
-  ["ศิษย์เก่าดีเด่น", (row) => row.record.outstandingAlumni ? (row.record.outstandingYear ? `ปี ${row.record.outstandingYear}` : "ใช่") : "", 16, { highlight: true }],
+  ["ศิษย์เก่าดีเด่น", (row) => row.record.outstandingAlumni ? "ใช่" : "", 14, { highlight: true }],
+  ["ปี พ.ศ. ที่ได้รับ", (row) => row.record.outstandingAlumni ? (row.record.outstandingYear === "n/a" ? "จำไม่ได้" : (row.record.outstandingYear || "")) : "", 16],
   ["ประเภทช่องทางติดต่อ", (row) => { const c = primaryContact(row.record); return c ? (CONTACT_LABELS[c.type] || c.type) : ""; }, 20],
   ["ช่องทางติดต่อ", (row) => { const c = primaryContact(row.record); return c?.value || ""; }, 28],
   ["มีรูป", (row) => (row.hasPhoto ? "มี" : "ไม่มี — ใช้ภาพคณะแทน"), 20],
