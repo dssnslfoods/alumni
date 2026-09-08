@@ -92,6 +92,9 @@ function primaryContact(record) {
   return contact || null;
 }
 
+const HIGHLIGHT_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF3CD" } };
+const HIGHLIGHT_HEADER_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFC107" } };
+
 const LAYOUT_COLUMNS = [
   ["ลำดับ", (row) => row.code, 12],
   ["รุ่น", (row) => row.record.batch, 8],
@@ -100,8 +103,18 @@ const LAYOUT_COLUMNS = [
   ["นามสกุล", (row) => row.lastName, 20],
   ["ชื่อ-นามสกุล", (row) => `${row.firstName} ${row.lastName}`, 28],
   ["ชื่อสมัยเรียน", (row) => `${row.record.legalFirstName} ${row.record.legalLastName}`, 28],
+  ["เปลี่ยนชื่อ", (row) => {
+    const r = row.record;
+    const changed = (r.currentFirstName && r.currentFirstName !== r.legalFirstName) || (r.currentLastName && r.currentLastName !== r.legalLastName);
+    return changed ? "ใช่" : "";
+  }, 10, { highlight: true }],
+  ["ประวัติการแก้ชื่อ", (row) => {
+    const history = row.record.nameHistory || [];
+    return history.map((h) => h.fullName).join(", ");
+  }, 30, { highlight: true }],
+  ["เคยเป็นอาจารย์", (row) => row.record.wasFaculty ? "ใช่" : "", 14, { highlight: true }],
   ["ตำแหน่งวิชาการ", (row) => row.record.wasFaculty ? (row.record.facultyTitle || "อาจารย์") : "", 18],
-  ["ศิษย์เก่าดีเด่น", (row) => row.record.outstandingAlumni ? (row.record.outstandingYear ? `ปี ${row.record.outstandingYear}` : "ใช่") : "", 16],
+  ["ศิษย์เก่าดีเด่น", (row) => row.record.outstandingAlumni ? (row.record.outstandingYear ? `ปี ${row.record.outstandingYear}` : "ใช่") : "", 16, { highlight: true }],
   ["ประเภทช่องทางติดต่อ", (row) => { const c = primaryContact(row.record); return c ? (CONTACT_LABELS[c.type] || c.type) : ""; }, 20],
   ["ช่องทางติดต่อ", (row) => { const c = primaryContact(row.record); return c?.value || ""; }, 28],
   ["มีรูป", (row) => (row.hasPhoto ? "มี" : "ไม่มี — ใช้ภาพคณะแทน"), 20],
@@ -122,6 +135,13 @@ export async function buildHandoffWorkbook(rows, { generatedBy, generatedAt } = 
   sheet.getRow(1).font = { bold: true };
   sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF2E7D5" } };
   sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: LAYOUT_COLUMNS.length } };
+
+  const highlightCols = LAYOUT_COLUMNS.map(([, , , opts], i) => (opts?.highlight ? i + 1 : null)).filter(Boolean);
+  highlightCols.forEach((col) => {
+    sheet.getRow(1).getCell(col).fill = HIGHLIGHT_HEADER_FILL;
+    for (let r = 2; r <= rows.length + 1; r++) sheet.getRow(r).getCell(col).fill = HIGHLIGHT_FILL;
+  });
+
   rows.forEach((row, index) => {
     if (!row.hasPhoto) sheet.getRow(index + 2).getCell(LAYOUT_COLUMNS.length).font = { color: { argb: "FFA73F3A" } };
   });

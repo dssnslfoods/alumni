@@ -611,11 +611,11 @@ router.get("/export-codes.xlsx", requirePermission("alumni.read"), route(async (
 
 /* --------------------- handoff package for the design team ---------------- */
 
-/** Records that were self-submitted or approved by admin/staff. */
+/** Records approved by admin/staff only — unapproved submissions are excluded. */
 async function handoffRowsFor(req) {
   const batches = requestedBatches(req);
   const all = await listAllAlumni({ batches });
-  const records = all.filter((r) => r.status === "submitted" || r.approval?.approved);
+  const records = all.filter((r) => r.approval?.approved);
   return { batches, rows: buildHandoffRows(records) };
 }
 
