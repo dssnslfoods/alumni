@@ -342,7 +342,8 @@ router.post("/submit", multipartBody({ maxFiles: 1 }), route(async (req, res) =>
     status: "submitted",
     pdpa: { consent: true, consentAt: now, version: settings.pdpaVersion },
     submittedAt: now,
-    updatedBy: "self"
+    updatedBy: "self",
+    dataEnteredBy: { username: "self", displayName: "นิสิตเก่า", role: "self", at: now }
   };
 
   if (legalChanged) {

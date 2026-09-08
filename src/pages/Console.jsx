@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle,
   ChevronLeft,
@@ -24,11 +24,50 @@ import {
   Mail,
   Phone,
   Landmark,
+  Lock,
   X
 } from "lucide-react";
 import { Alert, Field, Shell } from "../components/Shell.jsx";
 import { api, download, session } from "../lib/api.js";
 import { thai, FACULTY_TITLES, formatPhoneInput, formatPhone, formatTime } from "../lib/format.js";
+function usePasswordConfirm() {
+  const [state, setState] = useState({ open: false, resolve: null });
+  const inputRef = useRef(null);
+
+  const askPassword = useCallback(() => new Promise((resolve, reject) => {
+    setState({ open: true, resolve, reject });
+  }), []);
+
+  function onSubmit(e) {
+    e.preventDefault();
+    const pw = inputRef.current?.value?.trim();
+    if (!pw) return;
+    setState({ open: false, resolve: null });
+    state.resolve?.(pw);
+  }
+
+  function onCancel() {
+    setState({ open: false, resolve: null });
+    state.reject?.(new Error("cancelled"));
+  }
+
+  const dialog = state.open ? (
+    <div className="modal-overlay" onClick={onCancel}>
+      <form className="modal-box" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()} onSubmit={onSubmit}>
+        <h3><Lock size={18} /> ยืนยันรหัสผ่าน</h3>
+        <p className="panel-note">กรุณาใส่รหัสผ่านของคุณเพื่อดำเนินการ</p>
+        <input ref={inputRef} type="password" autoFocus placeholder="รหัสผ่าน" style={{ width: "100%", padding: "10px 12px", fontSize: "1rem", border: "1px solid var(--line)", borderRadius: 6 }} />
+        <div className="modal-actions">
+          <button type="button" className="ghost" onClick={onCancel}>ยกเลิก</button>
+          <button type="submit" className="next compact-btn">ยืนยัน</button>
+        </div>
+      </form>
+    </div>
+  ) : null;
+
+  return { askPassword, dialog };
+}
+
 const ROLE_LABELS = { owner: "เจ้าของระบบ", admin: "ผู้ดูแลระบบ", staff: "ตัวแทนรุ่น", alumni: "นิสิตเก่า" };
 const STATUS_LABELS = { pending: "ยังไม่ตอบ", submitted: "ยืนยันแล้ว", declined: "ไม่ประสงค์ลง" };
 
@@ -207,6 +246,7 @@ function Overview({ user }) {
       <div className="dash-card">
         <h4>การนำเข้าล่าสุด</h4>
         {data.lastImports?.length ? (
+          <div className="table-wrap">
           <table className="data-table">
             <thead><tr><th>ไฟล์</th><th>โดย</th><th>เพิ่มใหม่</th><th>อัปเดต</th><th>ข้าม</th><th>เวลา</th></tr></thead>
             <tbody>
@@ -222,8 +262,118 @@ function Overview({ user }) {
               ))}
             </tbody>
           </table>
+          </div>
         ) : <p className="empty">ยังไม่เคยนำเข้าไฟล์</p>}
       </div>
+      <SubmissionReport />
+    </div>
+  );
+}
+
+function SubmissionReport() {
+  const [batch, setBatch] = useState("");
+  const [updatedBy, setUpdatedBy] = useState("");
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function search() {
+    setLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams();
+      if (batch.trim()) params.set("batch", batch.trim());
+      if (updatedBy) params.set("updatedBy", updatedBy);
+      const result = await api(`/api/admin/report/submissions${params.toString() ? `?${params}` : ""}`);
+      setData(result);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { search(); }, []);
+
+  const allUserOpts = data?.allUsers?.filter((u) => u.username !== "self" && u.role !== "unknown") || [];
+  const adminOpts = allUserOpts.filter((u) => u.role === "owner" || u.role === "admin");
+  const staffOpts = allUserOpts.filter((u) => u.role === "staff");
+
+  return (
+    <div className="dash-card">
+      <h4>รายงานการกรอกข้อมูล</h4>
+      <p className="panel-note">ค้นหาว่ารุ่นไหนมีการกรอกข้อมูลแล้ว โดยเลือกดูตามผู้กรอก</p>
+      <form className="filters" onSubmit={(e) => { e.preventDefault(); search(); }}>
+        <Field label="รุ่น (เว้นว่าง = ทุกรุ่น)" value={batch} setValue={setBatch} placeholder="เช่น 45 หรือ 45, 46" inputMode="numeric" />
+        <label className="field"><span>ผู้กรอกข้อมูล</span>
+          <select value={updatedBy} onChange={(e) => setUpdatedBy(e.target.value)}>
+            <option value="">ทุกคน</option>
+            <option value="self">นิสิตเก่ากรอกเอง</option>
+            {adminOpts.length > 0 && <optgroup label="ผู้ดูแลระบบ">
+              <option value="admin">ผู้ดูแลระบบทั้งหมด ({adminOpts.reduce((s, u) => s + u.count, 0)})</option>
+              {adminOpts.map((u) => <option key={u.username} value={u.username}>{u.displayName} (@{u.username}) — {u.count}</option>)}
+            </optgroup>}
+            {staffOpts.length > 0 && <optgroup label="ตัวแทนรุ่น">
+              <option value="staff">ตัวแทนรุ่นทั้งหมด ({staffOpts.reduce((s, u) => s + u.count, 0)})</option>
+              {staffOpts.map((u) => <option key={u.username} value={u.username}>{u.displayName} (@{u.username}) — {u.count}</option>)}
+            </optgroup>}
+          </select>
+        </label>
+        <button className="next compact-btn" disabled={loading}>ค้นหา</button>
+      </form>
+
+      <Alert>{error}</Alert>
+
+      {loading && <p className="console-loading">กำลังโหลด…</p>}
+
+      {data && !loading && (
+        <>
+          <p style={{ margin: "12px 0 8px", fontWeight: 600 }}>
+            พบ {thai(data.total)} รายการที่มีการกรอกข้อมูล {data.total !== data.totalAll && <span className="muted-cell">(จากทั้งหมด {thai(data.totalAll)} รายการ)</span>}
+          </p>
+
+          {data.byUser.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <h5 style={{ margin: "0 0 6px" }}>สรุปตามผู้กรอก</h5>
+              <div className="table-wrap">
+              <table className="data-table">
+                <thead><tr><th>ผู้กรอก</th><th>บทบาท</th><th>จำนวน</th></tr></thead>
+                <tbody>
+                  {data.byUser.map((u) => (
+                    <tr key={u.username}>
+                      <td>{u.username === "self" ? "นิสิตเก่า (กรอกเอง)" : `${u.displayName} (@${u.username})`}</td>
+                      <td>{u.role === "self" ? "นิสิตเก่า" : ROLE_LABELS[u.role] || u.role}</td>
+                      <td>{thai(u.count)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              </div>
+            </div>
+          )}
+
+          {data.byBatch.length > 0 && (
+            <div>
+              <h5 style={{ margin: "0 0 6px" }}>สรุปตามรุ่น</h5>
+              <div className="table-wrap">
+              <table className="data-table">
+                <thead><tr><th>รุ่น</th><th>จำนวนที่กรอกแล้ว</th></tr></thead>
+                <tbody>
+                  {data.byBatch.map((b) => (
+                    <tr key={b.batch}>
+                      <td>รุ่น {b.batch}</td>
+                      <td>{thai(b.count)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              </div>
+            </div>
+          )}
+
+          {data.byBatch.length === 0 && <p className="empty">ไม่พบข้อมูลตามเงื่อนไข</p>}
+        </>
+      )}
     </div>
   );
 }
@@ -525,6 +675,8 @@ function AlumniTable({ user }) {
           <select value={status} onChange={(event) => setStatus(event.target.value)}>
             <option value="">ทุกสถานะ</option>
             {Object.entries(STATUS_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            <option value="approved">ตรวจสอบและอนุมัติแล้ว</option>
+            <option value="not-approved">ยังไม่อนุมัติ</option>
           </select>
         </label>
         <Field label="ค้นหาชื่อ / รหัสนิสิต" value={query} setValue={setQuery} placeholder="เช่น สมชาย หรือ 4500012" />
@@ -550,6 +702,14 @@ function AlumniTable({ user }) {
               {total === 0 ? "ไม่พบข้อมูลตามเงื่อนไข" : <>แสดง <strong>{thai(from)}–{thai(to)}</strong> จากทั้งหมด <strong>{thai(total)}</strong> รายการ</>}
             </span>
             <div className="pager-buttons">
+              {total > 0 && (
+                <button className="ghost" onClick={() => {
+                  const query = applied.batch ? `batch=${encodeURIComponent(applied.batch)}` : "";
+                  download(`/api/admin/export-codes.xlsx${query ? `?${query}` : ""}`, `รหัสยืนยันตัวตน${applied.batch ? `-รุ่น${applied.batch}` : ""}.xlsx`);
+                }}>
+                  <Download /> ส่งออกรหัสยืนยัน
+                </button>
+              )}
               <button className="ghost" disabled={offset === 0} onClick={() => setOffset(Math.max(offset - pageSize, 0))}>
                 <ChevronLeft /> ก่อนหน้า
               </button>
@@ -559,11 +719,12 @@ function AlumniTable({ user }) {
             </div>
           </div>
 
+          <div className="table-wrap">
           <table className="data-table">
             <thead>
               <tr>
               <th>รุ่น</th><th>ชื่อสมัยเรียน</th><th>รหัสยืนยัน</th><th>ชื่อในหนังสือ</th><th>สถานะส่งข้อมูล</th>
-              <th>รูป</th><th>ข้อมูลติดต่อ</th><th>สถานะติดตาม</th><th>ตรวจทานและอนุมัติ</th>
+              <th>รูป</th><th>ข้อมูลติดต่อ</th><th>สถานะติดตาม</th><th>ตรวจทานและอนุมัติ</th><th>ผู้กรอกข้อมูล</th>
               {canEdit && <th></th>}
             </tr>
             </thead>
@@ -622,6 +783,19 @@ function AlumniTable({ user }) {
                       <small className="approval-meta">{record.approval.approvedBy}<br />{record.approval.approvedRole}</small>
                     )}
                   </td>
+                  <td className="entered-by-cell">
+                    {record.dataEnteredBy ? (
+                      <>
+                        <small>{record.dataEnteredBy.role === "self" ? "นิสิตเก่า (กรอกเอง)" : record.dataEnteredBy.displayName}</small>
+                        {record.dataEnteredBy.role !== "self" && <br />}
+                        {record.dataEnteredBy.role !== "self" && <small className="muted-cell">({ROLE_LABELS[record.dataEnteredBy.role] || record.dataEnteredBy.role})</small>}
+                      </>
+                    ) : record.updatedBy === "self" ? (
+                      <small>นิสิตเก่า (กรอกเอง)</small>
+                    ) : record.updatedBy && record.status === "submitted" ? (
+                      <small className="muted-cell">{record.updatedBy}</small>
+                    ) : <span className="muted-cell">—</span>}
+                  </td>
                   {canEdit && (
                     <td className="action-cell">
                       <button className="ghost" onClick={() => setEditingRecord(record)} title="แก้ไข"><Pencil /></button>
@@ -633,6 +807,7 @@ function AlumniTable({ user }) {
               {!data?.records?.length && <tr><td colSpan={canEdit ? 11 : 10} className="empty">ไม่พบข้อมูลตามเงื่อนไข</td></tr>}
             </tbody>
           </table>
+          </div>
         </>
       )}
 
@@ -907,6 +1082,7 @@ function DeleteByIdSection({ onDeleted }) {
 /* ----------------------------- import / export ---------------------------- */
 
 function ImportExport({ canReset }) {
+  const { askPassword, dialog: passwordDialog } = usePasswordConfirm();
   const [files, setFiles] = useState([]);
   const [dragOver, setDragOver] = useState(false);
   const [previews, setPreviews] = useState([]);
@@ -962,6 +1138,8 @@ function ImportExport({ canReset }) {
   /** Parse and validate only — nothing is saved yet. */
   async function check() {
     if (!files.length) return setMessage("กรุณาเลือกไฟล์ก่อน");
+    let pw;
+    try { pw = await askPassword(); } catch { return; }
     setBusy(true);
     setMessage("");
     setResults([]);
@@ -972,6 +1150,7 @@ function ImportExport({ canReset }) {
         setProgress({ phase: "reading", percent: Math.round((i / files.length) * 100), done: i, total: files.length, label: files[i].name });
         const body = new FormData();
         body.append("file", files[i]);
+        body.append("confirmPassword", pw);
         const data = await api("/api/admin/import/prepare", { method: "POST", body });
         jobs.push(data.job);
       }
@@ -991,6 +1170,9 @@ function ImportExport({ canReset }) {
    */
   async function runImport() {
     if (!previews.length) return setMessage("กรุณากด \"ตรวจสอบไฟล์ก่อน\" ก่อนนำเข้าจริง");
+
+    let pw;
+    try { pw = await askPassword(); } catch { return; }
 
     if (replaceMode) {
       const batchesInFiles = [...new Set(previews.flatMap((j) => j.batches || (j.batch ? [j.batch] : [])))];
@@ -1014,7 +1196,7 @@ function ImportExport({ canReset }) {
         const batchesInFiles = [...new Set(previews.flatMap((j) => j.batches || (j.batch ? [j.batch] : [])))];
         setProgress({ phase: "clearing", percent: 0, done: 0, total: totalEntries, label: `ลบข้อมูลเดิมรุ่น ${batchesInFiles.join(", ")}` });
         for (const batch of batchesInFiles) {
-          await api("/api/admin/import/clear-batch", { method: "POST", body: { batch } });
+          await api("/api/admin/import/clear-batch", { method: "POST", body: { batch, confirmPassword: pw } });
         }
       }
 
@@ -1074,9 +1256,9 @@ function ImportExport({ canReset }) {
       <p className="panel-note">
         คอลัมน์ที่จำเป็น: <strong>ชื่อ</strong> และ <strong>สกุล</strong> เท่านั้น — รุ่นระบุจากชื่อไฟล์ (เช่น 54-2535.xlsx = รุ่น 54)
         <br />
-        ปีที่เข้าศึกษาระบบคำนวณจากรุ่น (รุ่น + 2481) และสร้าง<strong>รหัสยืนยันตัวตน</strong>ให้อัตโนมัติ
+        ปีที่เข้าศึกษาระบบคำนวณจากรุ่น (รุ่น + 2481) และสร้าง<strong>รหัสยืนยันตัวตน</strong>ให้อัตโนมัติ (ระเบียนที่มีรหัสอยู่แล้วจะคงรหัสเดิม)
         <br />
-        ลำดับคอลัมน์สลับกันได้ และ<strong>ข้อมูลที่นิสิตเก่ากรอกไว้แล้วจะไม่ถูกทับ</strong>
+        ลำดับคอลัมน์สลับกันได้ <strong>ข้อมูลที่นิสิตเก่ากรอกไว้แล้วจะไม่ถูกทับ</strong> และ<strong>รหัสยืนยันตัวตนจะไม่เปลี่ยนแปลง</strong>
       </p>
 
       <div className="button-row">
@@ -1146,7 +1328,7 @@ function ImportExport({ canReset }) {
           {p.updated > 0 && (
             <div className="import-warning">
               <strong>พบข้อมูลซ้ำ {thai(p.updated)} รายการ</strong>
-              <span>รายชื่อเหล่านี้มีในระบบแล้ว — หากกด "นำเข้าจริง" ระบบจะอัปเดตข้อมูลพื้นฐาน (ชื่อ, รุ่น, รหัสนิสิต) แต่ข้อมูลที่นิสิตเก่ากรอกไว้แล้วจะไม่ถูกทับ</span>
+              <span>รายชื่อเหล่านี้มีในระบบแล้ว — หากกด "นำเข้าจริง" ระบบจะอัปเดตข้อมูลพื้นฐาน (ชื่อ, รุ่น, รหัสนิสิต) แต่รหัสยืนยันตัวตนและข้อมูลที่นิสิตเก่ากรอกไว้แล้วจะไม่ถูกทับ</span>
             </div>
           )}
         </div>
@@ -1157,13 +1339,17 @@ function ImportExport({ canReset }) {
       <p className="panel-note">
         สร้างรหัสยืนยันตัวตนใหม่ทั้งหมดในรูปแบบ <strong>ปี พ.ศ. + ลำดับ 3 หลัก</strong> (เช่น 2563001)
         <br />
-        ใช้เมื่อนำเข้าข้อมูลใหม่แล้วต้องการอัปเดตรหัสให้ตรงรูปแบบ หรือเมื่อต้องการรีเซ็ตรหัสทั้งหมด
+        ใช้เมื่อต้องการรีเซ็ตรหัสทั้งหมด — <strong>รหัสเดิมทุกรายการจะถูกสร้างใหม่และใช้ไม่ได้อีก</strong>
+        <br />
+        หมายเหตุ: การนำเข้า Excel จะไม่เปลี่ยนรหัสของระเบียนเดิม ใช้ปุ่มนี้เฉพาะเมื่อต้องการรีเซ็ตจริงๆ เท่านั้น
       </p>
       <button className="ghost" disabled={busy} onClick={async () => {
         if (!window.confirm("สร้างรหัสยืนยันตัวตนใหม่ทั้งหมด? รหัสเดิมจะใช้ไม่ได้อีก")) return;
+        let pw;
+        try { pw = await askPassword(); } catch { return; }
         setBusy(true); setMessage("");
         try {
-          const res = await api("/api/admin/regenerate-codes", { method: "POST" });
+          const res = await api("/api/admin/regenerate-codes", { method: "POST", body: { confirmPassword: pw } });
           setMessage(`สร้างรหัสใหม่เรียบร้อย ${res.total} รายการ`);
         } catch (e) { setMessage(e.message); }
         setBusy(false);
@@ -1203,14 +1389,15 @@ function ImportExport({ canReset }) {
         <span>รวมอีเมลและเบอร์โทรที่ผู้ดูแลใช้ติดตามงาน — เป็นข้อมูลภายใน ห้ามส่งต่อให้ทีมออกแบบ</span>
       </label>
 
-      <RestoreZone canReset={canReset} />
-      <ResetInputZone canReset={canReset} />
-      <DangerZone canReset={canReset} />
+      <RestoreZone canReset={canReset} askPassword={askPassword} />
+      <ResetInputZone canReset={canReset} askPassword={askPassword} />
+      <DangerZone canReset={canReset} askPassword={askPassword} />
+      {passwordDialog}
     </div>
   );
 }
 
-function RestoreZone({ canReset }) {
+function RestoreZone({ canReset, askPassword }) {
   const [file, setFile] = useState(null);
   const [mode, setMode] = useState("merge");
   const [busy, setBusy] = useState(false);
@@ -1223,6 +1410,8 @@ function RestoreZone({ canReset }) {
     const modeLabel = mode === "replace" ? "ทับทั้งหมด (ลบข้อมูลเดิมทั้งหมดก่อนนำเข้า)" : "อัปเดต (เพิ่ม/อัปเดตระเบียนที่มีอยู่)";
     if (!window.confirm(`ยืนยันนำเข้าฐานข้อมูลจากไฟล์สำรอง?\n\nโหมด: ${modeLabel}\nไฟล์: ${file.name}`)) return;
     if (mode === "replace" && !window.confirm("⚠️ โหมด \"ทับทั้งหมด\" จะลบข้อมูลเดิมทั้งหมดก่อนนำเข้า\n\nยืนยันอีกครั้ง?")) return;
+    let pw;
+    try { pw = await askPassword(); } catch { return; }
     setBusy(true);
     setMessage("");
     setResult(null);
@@ -1231,6 +1420,7 @@ function RestoreZone({ canReset }) {
       const body = new FormData();
       body.append("file", file);
       body.append("mode", mode);
+      body.append("confirmPassword", pw);
       const response = await fetch("/api/admin/restore", {
         method: "POST",
         headers: { Authorization: `Bearer ${session.token}` },
@@ -1332,7 +1522,7 @@ function RestoreZone({ canReset }) {
 }
 
 /** Reset user-entered data while keeping Excel-imported base records. */
-function ResetInputZone({ canReset }) {
+function ResetInputZone({ canReset, askPassword }) {
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -1341,11 +1531,13 @@ function ResetInputZone({ canReset }) {
 
   async function reset() {
     if (!window.confirm("ยืนยันล้างข้อมูลที่นิสิตเก่ากรอกเข้ามา?\n\nข้อมูลพื้นฐานจากไฟล์ Excel (ชื่อ-นามสกุล, รุ่น, รหัสนิสิต) จะยังคงอยู่\nแต่ข้อมูลที่กรอกผ่านระบบ (รูปถ่าย, ช่องทางติดต่อ, ข้อมูลประวัติ, สถานะการส่ง) จะถูกรีเซ็ต")) return;
+    let pw;
+    try { pw = await askPassword(); } catch { return; }
     setBusy(true);
     setMessage("");
     setResult(null);
     try {
-      const data = await api("/api/admin/reset-input", { method: "POST", body: { confirm } });
+      const data = await api("/api/admin/reset-input", { method: "POST", body: { confirm, confirmPassword: pw } });
       setResult(data.reset);
       setConfirm("");
     } catch (error) {
@@ -1392,7 +1584,7 @@ function ResetInputZone({ canReset }) {
 }
 
 /** Owner-only wipe, used to clear test data before the real round begins. */
-function DangerZone({ canReset }) {
+function DangerZone({ canReset, askPassword }) {
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -1401,11 +1593,13 @@ function DangerZone({ canReset }) {
 
   async function reset() {
     if (!window.confirm(`ยืนยันล้างข้อมูลนิสิตเก่าทั้งหมด?\n\nการกระทำนี้ย้อนกลับไม่ได้ และจะลบระเบียนนิสิตเก่า ข้อมูลที่ส่งเข้ามา ประวัติการนำเข้า และรูปภาพทั้งหมด`)) return;
+    let pw;
+    try { pw = await askPassword(); } catch { return; }
     setBusy(true);
     setMessage("");
     setResult(null);
     try {
-      const data = await api("/api/admin/reset", { method: "POST", body: { confirm } });
+      const data = await api("/api/admin/reset", { method: "POST", body: { confirm, confirmPassword: pw } });
       setResult(data.deleted);
       setConfirm("");
     } catch (error) {
@@ -1627,6 +1821,7 @@ function HandoffPanel({ user }) {
             </div>
           )}
 
+          <div className="table-wrap">
           <table className="data-table">
             <thead>
               <tr><th>รุ่น</th><th>ยืนยันแล้ว</th><th>มีรูป</th><th>ใช้ภาพคณะ</th><th>ขนาดรูป</th><th>ดาวน์โหลด</th></tr>
@@ -1653,6 +1848,7 @@ function HandoffPanel({ user }) {
               {!data?.batches?.length && <tr><td colSpan="6" className="empty">ยังไม่มีผู้ยืนยันลงหนังสือ</td></tr>}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>
@@ -1860,6 +2056,7 @@ function UserManager({ user }) {
       )}
 
       {loading ? <p className="console-loading">กำลังโหลด…</p> : (
+        <div className="table-wrap">
         <table className="data-table">
           <thead><tr><th>ชื่อผู้ใช้</th><th>ชื่อที่แสดง</th><th>บทบาท</th><th>รุ่นที่ดูแล</th><th>ผูกกับนิสิตเก่า</th><th>เบอร์ติดต่อ</th><th>สถานะ</th><th>เข้าใช้ล่าสุด</th><th>จัดการ</th></tr></thead>
           <tbody>
@@ -1890,6 +2087,7 @@ function UserManager({ user }) {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );
@@ -2028,7 +2226,7 @@ const FIELD_LABELS = {
   reportedStudentId: "รหัสนิสิต", reportedEntryYear: "ปีเข้าศึกษา",
   wasFaculty: "อาจารย์", facultyTitle: "ตำแหน่งวิชาการ",
   outstandingAlumni: "ศิษย์เก่าดีเด่น", outstandingYear: "ปีที่ได้รับ",
-  contacts: "ช่องทางติดต่อ", photo: "รูปภาพ",
+  contacts: "ช่องทางติดต่อ", photo: "รูปภาพ", dataEnteredBy: "ผู้กรอกข้อมูล",
 };
 function formatChangedFields(changed) {
   if (!changed?.length) return "";
@@ -2052,7 +2250,7 @@ function describeAudit(log) {
     case "alumni.delete":
       return `ลบระเบียน ${m.name || "—"} รุ่น ${m.batch || "—"}${m.studentId ? ` (${m.studentId})` : ""}`;
     case "alumni.update":
-      return `${nameTag}${m.fields?.length ? ` — แก้ไข: ${m.fields.filter((f) => !["updatedAt", "updatedBy", "reviewedBy"].includes(f)).map((f) => FIELD_LABELS[f] || f).join(", ")}` : ""}`;
+      return `${nameTag}${m.fields?.length ? ` — แก้ไข: ${m.fields.filter((f) => !["updatedAt", "updatedBy", "reviewedBy", "dataEnteredBy"].includes(f)).map((f) => FIELD_LABELS[f] || f).join(", ")}` : ""}`;
     case "data.reset":
       return `ล้างข้อมูล: ${thai(m.alumni)} ระเบียน, ${thai(m.photos)} รูป`;
     case "data.resetInput":
@@ -2093,6 +2291,7 @@ function AuditLog() {
       <p className="panel-note">บันทึกเก็บเฉพาะรหัสอ้างอิงและค่าแฮชของหมายเลข IP ไม่มีข้อมูลส่วนบุคคล</p>
       <Alert>{error}</Alert>
       {loading ? <p className="console-loading">กำลังโหลด…</p> : (
+        <div className="table-wrap">
         <table className="data-table">
           <thead><tr><th>เวลา</th><th>ผู้ทำรายการ</th><th>การกระทำ</th><th>รายละเอียด</th></tr></thead>
           <tbody>
@@ -2106,6 +2305,7 @@ function AuditLog() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );

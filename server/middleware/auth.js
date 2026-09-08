@@ -1,5 +1,5 @@
-import { verifyToken } from "../lib/crypto.js";
-import { forbidden, unauthorized } from "../lib/http.js";
+import { verifyPassword, verifyToken } from "../lib/crypto.js";
+import { badRequest, forbidden, unauthorized } from "../lib/http.js";
 import { can, findUserById } from "../domain/users.js";
 
 /**
@@ -40,6 +40,20 @@ export function requireAuth(req, _res, next) {
 export function requireFreshPassword(req, _res, next) {
   if (req.user?.mustChangePassword) return next(forbidden("กรุณาเปลี่ยนรหัสผ่านก่อนใช้งานระบบ"));
   next();
+}
+
+export function requirePasswordConfirm(req, _res, next) {
+  const password = String(req.body?.confirmPassword || req.headers["x-confirm-password"] || "").trim();
+  if (!password) return next(badRequest("กรุณายืนยันรหัสผ่านเพื่อดำเนินการ"));
+  const uid = req.user?.uid;
+  if (!uid) return next(unauthorized());
+  findUserById(uid).then((user) => {
+    if (!user) return next(unauthorized());
+    return verifyPassword(password, user.passwordHash).then((valid) => {
+      if (!valid) return next(forbidden("รหัสผ่านไม่ถูกต้อง"));
+      next();
+    });
+  }).catch(next);
 }
 
 export function requirePermission(permission) {

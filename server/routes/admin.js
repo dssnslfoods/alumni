@@ -6,7 +6,7 @@ import { badRequest, forbidden, notFound, route } from "../lib/http.js";
 import { audit } from "../lib/audit.js";
 import { multipartBody } from "../lib/multipart.js";
 import { bulkSet, countDocs, deleteAllDocs, deleteDoc, deleteDocsByQuery, listDocs } from "../lib/db.js";
-import { assertBatchAccess, loadUser, requireAuth, requireFreshPassword, requirePermission } from "../middleware/auth.js";
+import { assertBatchAccess, loadUser, requireAuth, requireFreshPassword, requirePasswordConfirm, requirePermission } from "../middleware/auth.js";
 import {
   ROLES,
   assertCanManage,
@@ -45,13 +45,16 @@ import {
   validateFollowUp
 } from "../domain/alumni.js";
 import {
+  buildCodesWorkbook,
   buildExportWorkbook,
   buildImportTemplate,
+  clearSavedCodes,
   importAlumniWorkbook,
   parseImportWorkbook,
   parseRestoreWorkbook,
   previewImportCounts,
   recordImportJob,
+  saveVerificationCodes,
   writeImportRows
 } from "../domain/excel.js";
 import { generateSampleRows } from "../domain/sample-data.js";
@@ -82,6 +85,78 @@ router.get("/summary", requirePermission("alumni.read"), route(async (req, res) 
     listDocs(config.collections.importJobs, { orderBy: ["startedAt", "desc"], limit: 5 })
   ]);
   res.json({ ...summary, userCount, lastImports, maxBatch: effectiveMaxBatch() });
+}));
+
+/* ----------------------------- submission report --------------------------- */
+
+router.get("/report/submissions", requirePermission("alumni.read"), route(async (req, res) => {
+  const batches = requestedBatches(req);
+  const updatedBy = String(req.query.updatedBy || "").trim();
+  const all = await listAllAlumni({ batches });
+  const users = await listUsers({ limit: 500 });
+  const userByName = new Map(users.map((u) => [u.username, { role: u.role, displayName: u.displayName || u.username }]));
+  const userById = new Map(users.map((u) => [u.id, { role: u.role, displayName: u.displayName || u.username, username: u.username }]));
+
+  function enteredByInfo(r) {
+    if (r.dataEnteredBy) return { username: r.dataEnteredBy.username, displayName: r.dataEnteredBy.displayName, role: r.dataEnteredBy.role };
+    const who = r.updatedBy || "";
+    if (!who) return null;
+    if (who === "self") return { username: "self", displayName: "นิสิตเก่า", role: "self" };
+    const byName = userByName.get(who);
+    if (byName) return { username: who, displayName: byName.displayName, role: byName.role };
+    const byId = userById.get(who);
+    if (byId) return { username: byId.username, displayName: byId.displayName, role: byId.role };
+    return { username: who, displayName: who, role: "unknown" };
+  }
+
+  function hasDataEntry(r) {
+    return r.dataEnteredBy || r.status === "submitted" || r.updatedBy === "self";
+  }
+
+  const withData = all.filter((r) => hasDataEntry(r));
+
+  const filtered = withData.filter((r) => {
+    if (!updatedBy) return true;
+    const info = enteredByInfo(r);
+    if (!info) return false;
+    if (updatedBy === "self") return info.role === "self";
+    if (updatedBy === "admin") return info.role === "owner" || info.role === "admin";
+    if (updatedBy === "staff") return info.role === "staff";
+    return info.username === updatedBy;
+  });
+
+  const byBatch = new Map();
+  const byUser = new Map();
+  filtered.forEach((r) => {
+    const stats = byBatch.get(r.batch) || { batch: r.batch, count: 0 };
+    stats.count += 1;
+    byBatch.set(r.batch, stats);
+
+    const info = enteredByInfo(r);
+    if (info) {
+      const userStats = byUser.get(info.username) || { ...info, count: 0 };
+      userStats.count += 1;
+      byUser.set(info.username, userStats);
+    }
+  });
+
+  const allByUser = new Map();
+  withData.forEach((r) => {
+    const info = enteredByInfo(r);
+    if (info) {
+      const stats = allByUser.get(info.username) || { ...info, count: 0 };
+      stats.count += 1;
+      allByUser.set(info.username, stats);
+    }
+  });
+
+  res.json({
+    total: filtered.length,
+    totalAll: withData.length,
+    byBatch: [...byBatch.values()].sort((a, b) => a.batch - b.batch),
+    byUser: [...byUser.values()].sort((a, b) => b.count - a.count),
+    allUsers: [...allByUser.values()].sort((a, b) => b.count - a.count)
+  });
 }));
 
 /* ------------------------------ user accounts ---------------------------- */
@@ -208,10 +283,13 @@ function requestedBatches(req) {
 router.get("/alumni", requirePermission("alumni.read"), route(async (req, res) => {
   const batches = requestedBatches(req);
   if (!batches.length && req.user.batchScope?.length) throw badRequest("กรุณาระบุรุ่นที่ต้องการดู");
-  const status = STATUSES.includes(String(req.query.status)) ? String(req.query.status) : undefined;
+  const rawStatus = String(req.query.status || "");
+  const status = STATUSES.includes(rawStatus) ? rawStatus : undefined;
+  const approvalFilter = rawStatus === "approved" ? true : rawStatus === "not-approved" ? false : undefined;
   const page = await listAlumni({
     batches,
     status,
+    approvalFilter,
     query: req.query.q ? String(req.query.q) : undefined,
     limit: Math.min(Math.max(Number(req.query.limit) || 100, 1), 1000),
     offset: Math.max(Number(req.query.offset) || 0, 0)
@@ -237,7 +315,15 @@ router.patch("/alumni/:id", requirePermission("alumni.write"), multipartBody({ m
   if (!record) throw notFound("ไม่พบระเบียนนิสิตเก่า");
   assertBatchAccess(req.user, record.batch);
 
-  const patch = { updatedBy: req.user.username };
+  const patch = {
+    updatedBy: req.user.username,
+    dataEnteredBy: {
+      username: req.user.username,
+      displayName: req.user.displayName || req.user.username,
+      role: req.user.role,
+      at: new Date().toISOString()
+    }
+  };
 
   if (req.body?.legalFirstName !== undefined || req.body?.legalLastName !== undefined) {
     const first = normalizeText(req.body.legalFirstName ?? record.legalFirstName);
@@ -400,7 +486,7 @@ router.get("/import/demo/:name", requirePermission("alumni.import"), route(async
   res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").send(buffer);
 }));
 
-router.post("/import", requirePermission("alumni.import"), multipartBody({ maxFiles: 1 }), route(async (req, res) => {
+router.post("/import", requirePermission("alumni.import"), multipartBody({ maxFiles: 1 }), requirePasswordConfirm, route(async (req, res) => {
   const file = req.files?.file;
   if (!file?.buffer?.length) throw badRequest("ไม่พบไฟล์ Excel ที่อัปโหลด");
   const job = await importAlumniWorkbook({
@@ -421,7 +507,7 @@ router.post("/import", requirePermission("alumni.import"), multipartBody({ maxFi
 /* ---- chunked import: lets the console show a real progress bar ---- */
 
 /** Step 1 — parse and validate the file. Writes nothing. */
-router.post("/import/prepare", requirePermission("alumni.import"), multipartBody({ maxFiles: 1 }), route(async (req, res) => {
+router.post("/import/prepare", requirePermission("alumni.import"), multipartBody({ maxFiles: 1 }), requirePasswordConfirm, route(async (req, res) => {
   const file = req.files?.file;
   if (!file?.buffer?.length) throw badRequest("ไม่พบไฟล์ Excel ที่อัปโหลด");
   const parsed = await parseImportWorkbook({ buffer: file.buffer, filename: file.filename });
@@ -435,9 +521,10 @@ router.post("/import/prepare", requirePermission("alumni.import"), multipartBody
 }));
 
 /** Step 1.5 — clear all records for a batch before re-importing. */
-router.post("/import/clear-batch", requirePermission("alumni.import"), route(async (req, res) => {
+router.post("/import/clear-batch", requirePermission("alumni.import"), requirePasswordConfirm, route(async (req, res) => {
   const batch = Number(req.body?.batch);
   if (!batch || batch < 1 || batch > effectiveMaxBatch()) throw badRequest("รุ่นไม่ถูกต้อง");
+  await saveVerificationCodes(batch);
   const [alumni, photos] = await Promise.all([
     deleteDocsByQuery(config.collections.alumni, [["batch", "==", batch]]),
     deletePhotosByBatch(batch)
@@ -483,6 +570,7 @@ router.post("/import/commit", requirePermission("alumni.import"), route(async (r
     errors: Array.isArray(body.errors) ? body.errors.slice(0, 200) : []
   });
   invalidatePublicStats();
+  clearSavedCodes();
   await audit(req, "alumni.import", {
     targetType: "importJob",
     targetId: job.jobId,
@@ -510,6 +598,16 @@ router.get("/export.xlsx", requirePermission("alumni.export"), route(async (req,
   const suffix = batches.length === 1 ? `-batch-${batches[0]}` : batches.length ? `-${batches.length}batches` : "";
   res.setHeader("Content-Disposition", `attachment; filename=yearbook-2569${suffix}${includeOutreach ? "-followup" : ""}.xlsx`);
   res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").send(Buffer.from(await buildExportWorkbook(records, { includeOutreach })));
+}));
+
+router.get("/export-codes.xlsx", requirePermission("alumni.read"), route(async (req, res) => {
+  const batches = requestedBatches(req);
+  const records = await listAllAlumni({ batches });
+  if (!records.length) throw badRequest("ไม่พบข้อมูลนิสิตเก่าตามเงื่อนไขที่ระบุ");
+  await audit(req, "alumni.exportCodes", { meta: { count: records.length, batches: batches.length ? batches : "all" } });
+  const suffix = batches.length === 1 ? `-batch-${batches[0]}` : batches.length ? `-${batches.length}batches` : "";
+  res.setHeader("Content-Disposition", `attachment; filename=verification-codes${suffix}.xlsx`);
+  res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").send(Buffer.from(await buildCodesWorkbook(records)));
 }));
 
 /* --------------------- handoff package for the design team ---------------- */
@@ -588,7 +686,7 @@ router.put("/settings", requirePermission("settings.manage"), route(async (req, 
 
 /* ---------------------- regenerate verification codes -------------------- */
 
-router.post("/regenerate-codes", requirePermission("alumni.import"), route(async (req, res) => {
+router.post("/regenerate-codes", requirePermission("alumni.import"), requirePasswordConfirm, route(async (req, res) => {
   const records = await listAllAlumni({});
   const byYear = new Map();
   records.forEach((r) => {
@@ -611,7 +709,7 @@ router.post("/regenerate-codes", requirePermission("alumni.import"), route(async
 
 /* ----------------------------- restore (backup import) ------------------- */
 
-router.post("/restore", requirePermission("data.reset"), multipartBody({ maxFileBytes: 50 * 1024 * 1024 }), route(async (req, res) => {
+router.post("/restore", requirePermission("data.reset"), multipartBody({ maxFileBytes: 50 * 1024 * 1024 }), requirePasswordConfirm, route(async (req, res) => {
   const mode = String(req.body?.mode || "merge");
   if (!["merge", "replace"].includes(mode)) throw badRequest("mode ต้องเป็น merge หรือ replace");
 
@@ -671,7 +769,7 @@ router.post("/restore", requirePermission("data.reset"), multipartBody({ maxFile
 
 const RESET_INPUT_PHRASE = "ล้างข้อมูลที่กรอก";
 
-router.post("/reset-input", requirePermission("data.reset"), route(async (req, res) => {
+router.post("/reset-input", requirePermission("data.reset"), requirePasswordConfirm, route(async (req, res) => {
   if (String(req.body?.confirm || "").trim() !== RESET_INPUT_PHRASE) {
     throw badRequest(`เพื่อยืนยัน กรุณาพิมพ์ข้อความ "${RESET_INPUT_PHRASE}" ให้ตรงทุกตัวอักษร`);
   }
@@ -697,7 +795,7 @@ const RESET_PHRASE = "ล้างข้อมูลทั้งหมด";
  * Deliberately preserved: user accounts, system settings, and the audit log —
  * the record that this wipe happened must survive the wipe.
  */
-router.post("/reset", requirePermission("data.reset"), route(async (req, res) => {
+router.post("/reset", requirePermission("data.reset"), requirePasswordConfirm, route(async (req, res) => {
   if (String(req.body?.confirm || "").trim() !== RESET_PHRASE) {
     throw badRequest(`เพื่อยืนยัน กรุณาพิมพ์ข้อความ "${RESET_PHRASE}" ให้ตรงทุกตัวอักษร`);
   }

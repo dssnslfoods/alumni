@@ -11,12 +11,25 @@ import {
   alumniId,
   defaultSubmissionFields,
   entryYearFromStudentId,
+  listAllAlumni,
   normalizeText,
   onlyDigits,
   parseBatch,
   referenceFields,
   searchKey
 } from "./alumni.js";
+
+const savedCodes = new Map();
+
+export async function saveVerificationCodes(batch) {
+  const records = await listAllAlumni({ batches: [batch] });
+  records.forEach((r) => { if (r.verificationCode) savedCodes.set(r.id, r.verificationCode); });
+  return savedCodes.size;
+}
+
+export function clearSavedCodes() {
+  savedCodes.clear();
+}
 
 const { alumni: ALUMNI, importJobs: IMPORT_JOBS } = config.collections;
 
@@ -265,7 +278,8 @@ export async function writeImportRows({ entries, actor, jobId, filename }) {
 
     const ref = referenceFields(item.value);
     const entryYear = ref.entryYear || (2481 + item.value.batch);
-    const verificationCode = generateVerificationCode(entryYear, nextSeq(entryYear));
+    const verificationCode = previous?.verificationCode || savedCodes.get(id)
+      || generateVerificationCode(entryYear, nextSeq(entryYear));
 
     return {
       id,
@@ -420,6 +434,43 @@ export async function buildExportWorkbook(records, { includeOutreach = false } =
   worksheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF2E7D5" } };
   worksheet.views = [{ state: "frozen", ySplit: 1 }];
   worksheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: columns.length } };
+  return workbook.xlsx.writeBuffer();
+}
+
+export async function buildCodesWorkbook(records) {
+  const byBatch = new Map();
+  records.forEach((r) => {
+    const b = r.batch || 0;
+    if (!byBatch.has(b)) byBatch.set(b, []);
+    byBatch.get(b).push(r);
+  });
+  const sortedBatches = [...byBatch.keys()].sort((a, b) => a - b);
+
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "ระบบหนังสืออนุสรณ์ สภจ. 2569";
+  workbook.created = new Date();
+
+  for (const batch of sortedBatches) {
+    const rows = byBatch.get(batch);
+    const sheetName = `รุ่น ${batch}`;
+    const ws = workbook.addWorksheet(sheetName);
+    ws.columns = [
+      { header: "ลำดับ", key: "no", width: 8 },
+      { header: "ชื่อ", key: "firstName", width: 22 },
+      { header: "นามสกุล", key: "lastName", width: 22 },
+      { header: "รหัสยืนยันตัวตน", key: "code", width: 18 }
+    ];
+    rows.forEach((r, i) => ws.addRow({
+      no: i + 1,
+      firstName: r.legalFirstName,
+      lastName: r.legalLastName,
+      code: r.verificationCode || ""
+    }));
+    ws.getRow(1).font = { bold: true };
+    ws.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF2E7D5" } };
+    ws.views = [{ state: "frozen", ySplit: 1 }];
+  }
+
   return workbook.xlsx.writeBuffer();
 }
 

@@ -219,6 +219,7 @@ export function selfView(record) {
     reviewNote: _reviewNote,
     reviewedBy: _reviewedBy,
     updatedBy: _updatedBy,
+    dataEnteredBy: _dataEnteredBy,
     ...safe
   } = record;
   return safe;
@@ -552,13 +553,20 @@ export async function alumniSummary() {
  * reach is not capped — 10,000+ pages fine. Searching uses indexed prefix
  * queries rather than pulling the collection into memory to filter it.
  */
-export async function listAlumni({ batches, status, query, limit = 100, offset = 0 } = {}) {
+export async function listAlumni({ batches, status, approvalFilter, query, limit = 100, offset = 0 } = {}) {
   const list = batches?.length ? batches : [];
   const statusClause = status ? [["status", "==", status]] : [];
+  const applyApproval = (records) => approvalFilter === undefined ? records : records.filter((r) => !!r.approval?.approved === approvalFilter);
 
   if (query) {
-    const matches = await searchAlumniRecords({ batches: list, status, query });
+    const matches = applyApproval(await searchAlumniRecords({ batches: list, status, query }));
     return { records: matches.slice(offset, offset + limit), total: matches.length, offset, limit, searched: true };
+  }
+
+  if (approvalFilter !== undefined) {
+    const merged = list.length ? await fetchByBatches(list, statusClause) : await listDocs(ALUMNI, { where: statusClause, limit: 20000 });
+    const filtered = applyApproval(merged);
+    return { records: filtered.slice(offset, offset + limit), total: filtered.length, offset, limit, searched: false };
   }
 
   // One batch (or none) maps to a single indexed query, so paging is unbounded.

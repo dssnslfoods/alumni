@@ -376,6 +376,9 @@ export function Yearbook() {
           <p className="kicker">หนังสืออนุสรณ์ สภจ. ครบรอบ 21 ปี</p>
           <h1>ยินดีต้อนรับ</h1>
           <p className="intro">ฐานข้อมูล ทำเนียบรุ่นและรายชื่อนิสิตเก่า และ คณาจารย์ คณะเภสัชศาสตร์ จุฬาลงกรณ์มหาวิทยาลัย</p>
+          <div className="submission-period-banner">
+            <strong>เปิดรับข้อมูล:</strong> 9 กันยายน — 15 ตุลาคม 2569
+          </div>
           <div className="choice-row">
             <button className="intent yes" onClick={() => { setIntent("yes"); move(1); }}>
               <Check /><span>มีความประสงค์</span><small>ส่งข้อมูลเพื่อลงหนังสืออนุสรณ์</small>
