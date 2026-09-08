@@ -1746,7 +1746,7 @@ function HandoffPanel({ user }) {
             <tbody>
               {(data?.batches || []).map((item) => {
                 const pct = item.totalInBatch ? Math.round((item.approvedInBatch / item.totalInBatch) * 100) : 0;
-                const ready = item.approvedInBatch > 0 && item.approvedInBatch === item.submittedInBatch;
+                const ready = item.approvedInBatch > 0 && item.approvedInBatch === item.totalInBatch;
                 return (
                   <tr key={`approval-${item.batch}`}>
                     <td>รุ่น {item.batch}</td>
