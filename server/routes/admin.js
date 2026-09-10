@@ -36,7 +36,10 @@ import {
   onlyDigits,
   parseBatch,
   parseBatchList,
+  alumniId,
+  defaultSubmissionFields,
   invalidatePublicStats,
+  referenceFields,
   saveAlumni,
   searchKey,
   syncSubmission,
@@ -466,6 +469,59 @@ router.delete("/alumni/:id", requirePermission("alumni.write"), route(async (req
     }
   });
   res.json({ ok: true });
+}));
+
+/* ----------------------------- add single alumni -------------------------- */
+
+router.post("/alumni", requirePermission("alumni.import"), route(async (req, res) => {
+  const { studentId, title, firstName, lastName, batch: rawBatch } = req.body || {};
+  if (!firstName?.trim()) throw badRequest("กรุณาระบุชื่อ");
+  if (!lastName?.trim()) throw badRequest("กรุณาระบุสกุล");
+  const batch = parseBatch(String(rawBatch || ""));
+  if (batch === null || batch < 1) throw badRequest("กรุณาระบุรุ่น");
+
+  const id = alumniId({ studentId: studentId || "", batch, firstName, lastName });
+  const existing = await findAlumniById(id);
+  if (existing) throw badRequest(`มีระเบียนนิสิตคนนี้อยู่แล้ว (${existing.legalFirstName} ${existing.legalLastName})`);
+
+  const batchRecords = await listAllAlumni({ batches: [batch] });
+
+  const existingEntryYear = batchRecords.find((r) => r.entryYear)?.entryYear;
+  const entryYear = existingEntryYear || (2481 + batch);
+
+  const ref = referenceFields({ studentId: studentId || "", batch, entryYear, firstName, lastName, title: title || "" });
+  ref.entryYear = entryYear;
+
+  let maxSeq = 0;
+  const prefix = String(entryYear);
+  batchRecords.forEach((r) => {
+    if (r.verificationCode?.startsWith(prefix)) {
+      const seq = parseInt(r.verificationCode.slice(prefix.length), 10);
+      if (seq > maxSeq) maxSeq = seq;
+    }
+  });
+  const verificationCode = generateVerificationCode(entryYear, maxSeq + 1);
+
+  const now = new Date().toISOString();
+  const data = {
+    ...defaultSubmissionFields({ firstName, lastName }),
+    ...ref,
+    verificationCode,
+    id,
+    createdAt: now,
+    updatedAt: now,
+    updatedBy: req.user.uid,
+    source: { addedBy: req.user.username, addedAt: now }
+  };
+
+  await saveAlumni(id, data);
+  invalidatePublicStats();
+  await audit(req, "alumni.add", {
+    targetType: "alumni",
+    targetId: id,
+    meta: { batch, name: `${firstName} ${lastName}`, studentId: studentId || "", verificationCode }
+  });
+  res.status(201).json({ ok: true, record: alumniView(data) });
 }));
 
 /* -------------------------------- import --------------------------------- */

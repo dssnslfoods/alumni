@@ -811,6 +811,8 @@ function AlumniTable({ user }) {
         </>
       )}
 
+      {["owner", "admin"].includes(user.role) && <AddAlumniSection onAdded={reload} />}
+
       {canEdit && <DeleteByIdSection onDeleted={reload} />}
 
       {editingRecord && (
@@ -998,6 +1000,71 @@ function EditAlumniModal({ record, onClose, onSaved }) {
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+function AddAlumniSection({ onAdded }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ studentId: "", title: "", firstName: "", lastName: "", batch: "" });
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  function set(field) {
+    return (v) => setForm((prev) => ({ ...prev, [field]: typeof v === "string" ? v : v.target.value }));
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!form.firstName.trim() || !form.lastName.trim() || !form.batch.trim()) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const res = await api("/api/admin/alumni", {
+        method: "POST",
+        body: {
+          studentId: form.studentId.trim(),
+          title: form.title.trim(),
+          firstName: form.firstName.trim(),
+          lastName: form.lastName.trim(),
+          batch: form.batch.trim()
+        }
+      });
+      const rec = res.record;
+      setMessage(`เพิ่มสำเร็จ: ${rec.legalFirstName} ${rec.legalLastName} รุ่น ${rec.batch} — รหัสยืนยัน: ${rec.verificationCode}`);
+      setForm({ studentId: "", title: "", firstName: "", lastName: "", batch: form.batch });
+      onAdded?.();
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 32, borderTop: "1px solid var(--line)", paddingTop: 24 }}>
+      <div className="panel-head">
+        <h3><UserPlus size={18} /> เพิ่มนิสิตรายคน</h3>
+        <button className="ghost" onClick={() => setOpen(!open)}>{open ? "ซ่อน" : "แสดงฟอร์ม"}</button>
+      </div>
+      <p className="panel-note">เพิ่มนิสิตใหม่เข้ารุ่น โดยระบบจะสร้างรหัสยืนยันตัวตนต่อจากลำดับสุดท้ายของรุ่นอัตโนมัติ ไม่กระทบรหัสของคนอื่นในรุ่น</p>
+      {open && (
+        <form onSubmit={submit}>
+          <div className="filters">
+            <Field label="รุ่น *" value={form.batch} setValue={set("batch")} placeholder="เช่น 45" inputMode="numeric" />
+            <Field label="เลขประจำตัวนิสิต" value={form.studentId} setValue={set("studentId")} placeholder="เช่น 2675018" />
+            <Field label="คำนำหน้า" value={form.title} setValue={set("title")} placeholder="เช่น นาย" />
+            <Field label="ชื่อ *" value={form.firstName} setValue={set("firstName")} placeholder="ชื่อ" />
+            <Field label="สกุล *" value={form.lastName} setValue={set("lastName")} placeholder="นามสกุล" />
+          </div>
+          <div className="row-actions" style={{ marginTop: 8 }}>
+            <button className="next compact-btn" disabled={busy || !form.firstName.trim() || !form.lastName.trim() || !form.batch.trim()}>
+              <UserPlus size={16} /> เพิ่มนิสิต
+            </button>
+          </div>
+        </form>
+      )}
+      {message && <Alert tone={message.includes("สำเร็จ") ? "ok" : undefined}>{message}</Alert>}
     </div>
   );
 }
@@ -1856,6 +1923,7 @@ function UserManager({ user }) {
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(null);
 
+  const [searchUser, setSearchUser] = useState("");
   const [sortBy, setSortBy] = useState("username");
   const [sortDir, setSortDir] = useState("asc");
   const assignableRoles = Object.keys(ROLE_LABELS).filter((role) => role !== "owner" && (user.role === "owner" || role !== "admin"));
@@ -2068,6 +2136,16 @@ function UserManager({ user }) {
         </div>
       )}
 
+      <div style={{ marginBottom: "0.75rem" }}>
+        <input
+          type="text"
+          placeholder="ค้นหาชื่อผู้ใช้ หรือชื่อที่แสดง…"
+          value={searchUser}
+          onChange={(e) => setSearchUser(e.target.value)}
+          style={{ padding: "0.5rem 0.75rem", width: "300px", borderRadius: "6px", border: "1px solid #ccc" }}
+        />
+      </div>
+
       {loading ? <p className="console-loading">กำลังโหลด…</p> : (
         <div className="table-wrap">
         <table className="data-table">
@@ -2079,7 +2157,11 @@ function UserManager({ user }) {
             <th>ผูกกับนิสิตเก่า</th><th>เบอร์ติดต่อ</th><th>สถานะ</th><th>เข้าใช้ล่าสุด</th><th>จัดการ</th>
           </tr></thead>
           <tbody>
-            {sortedUsers(data?.users || []).map((item) => (
+            {sortedUsers((data?.users || []).filter((u) => {
+              if (!searchUser.trim()) return true;
+              const q = searchUser.trim().toLowerCase();
+              return (u.username || "").toLowerCase().includes(q) || (u.displayName || "").toLowerCase().includes(q);
+            })).map((item) => (
               <tr key={item.uid}>
                 <td>{item.username}{item.mustChangePassword && <small className="pending-flag"> ยังไม่ตั้งรหัสผ่าน</small>}</td>
                 <td>{item.displayName}</td>

@@ -127,6 +127,21 @@ export async function readWorkbookRows(buffer, filename = "") {
   headerRow.eachCell({ includeEmpty: true }, (cell, columnNumber) => { headers[columnNumber] = normalizeText(cellText(cell.value)); });
   if (!headers.filter(Boolean).length) throw badRequest("แถวแรกของไฟล์ต้องเป็นชื่อคอลัมน์");
 
+  const normalizedHeaders = headers.filter(Boolean).map((h) => searchKey(h));
+  const REQUIRED_COLUMNS = [
+    { aliases: COLUMN_ALIASES.firstName, label: "ชื่อ" },
+    { aliases: COLUMN_ALIASES.lastName, label: "สกุล/นามสกุล" },
+    { aliases: COLUMN_ALIASES.studentId, label: "เลขประจำตัวนิสิต" },
+  ];
+  const missing = REQUIRED_COLUMNS.filter((col) => !col.aliases.some((a) => normalizedHeaders.includes(searchKey(a))));
+  if (missing.length) {
+    throw badRequest(
+      `ไฟล์ไม่ตรงตาม format มาตรฐาน — ไม่พบคอลัมน์: ${missing.map((c) => c.label).join(", ")}` +
+      "\nคอลัมน์ที่ต้องมี: เลขประจำตัวนิสิต, คำนำหน้า, ชื่อ, สกุล" +
+      `\nคอลัมน์ที่พบในไฟล์: ${headers.filter(Boolean).join(", ")}`
+    );
+  }
+
   const rows = [];
   worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
     if (rowNumber === 1) return;
