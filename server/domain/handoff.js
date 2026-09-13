@@ -143,7 +143,7 @@ const LAYOUT_COLUMNS = [
 ];
 
 /** Multi-sheet workbook: layout data, per-batch counts, and what still needs chasing. */
-export async function buildHandoffWorkbook(rows, { generatedBy, generatedAt } = {}) {
+export function buildHandoffWorkbook(rows, { generatedBy, generatedAt } = {}) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "ระบบหนังสืออนุสรณ์ สภจ. 2569";
   workbook.created = new Date();
@@ -262,7 +262,7 @@ export async function buildHandoffWorkbook(rows, { generatedBy, generatedAt } = 
     row.height = 24;
   });
 
-  return workbook.xlsx.writeBuffer();
+  return workbook;
 }
 
 function csvCell(value) {

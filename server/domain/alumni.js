@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { config } from "../lib/env.js";
-import { bulkSet, countDocs, getDoc, listDocs, setDoc, updateDoc } from "../lib/db.js";
+import { bulkSet, countDocs, getDoc, listAllDocs, listDocs, setDoc, updateDoc } from "../lib/db.js";
 import { badRequest } from "../lib/http.js";
 import { effectiveMaxBatch } from "./settings.js";
 
@@ -454,14 +454,14 @@ export function summariseFollowUp(records) {
 }
 
 export async function alumniSummary() {
-  const [total, submitted, pending, declined] = await Promise.all([
-    countDocs(ALUMNI),
-    countDocs(ALUMNI, [["status", "==", "submitted"]]),
-    countDocs(ALUMNI, [["status", "==", "pending"]]),
-    countDocs(ALUMNI, [["status", "==", "declined"]])
-  ]);
-
-  const all = await listDocs(ALUMNI, { limit: 60000 });
+  const all = await listAllDocs(ALUMNI);
+  let total = 0, submitted = 0, pending = 0, declined = 0;
+  all.forEach((r) => {
+    total += 1;
+    if (r.status === "submitted") submitted += 1;
+    else if (r.status === "pending") pending += 1;
+    else if (r.status === "declined") declined += 1;
+  });
   const followUp = summariseFollowUp(all);
   const byBatch = new Map();
   let withPhoto = 0;
@@ -634,13 +634,7 @@ async function searchAlumniRecords({ batches = [], status, query, cap = 5000 }) 
  * base records. Used when transitioning from UAT to production.
  */
 export async function resetUserInput({ onProgress } = {}) {
-  const all = [];
-  const PAGE = 2000;
-  for (let offset = 0; ; offset += PAGE) {
-    const page = await listDocs(ALUMNI, { limit: PAGE, offset });
-    all.push(...page);
-    if (page.length < PAGE) break;
-  }
+  const all = await listAllDocs(ALUMNI);
 
   const entries = all.map((record) => ({
     id: record.id,
@@ -662,12 +656,6 @@ export async function listAllAlumni({ batches, status } = {}) {
   if (batches?.length > 1) return fetchByBatches(batches, statusClause);
 
   const where = [...(batches?.length ? [["batch", "==", batches[0]]] : []), ...statusClause];
-  const all = [];
-  const PAGE = 2000;
-  for (let offset = 0; ; offset += PAGE) {
-    const page = await listDocs(ALUMNI, { where, limit: PAGE, offset });
-    all.push(...page);
-    if (page.length < PAGE) break;
-  }
+  const all = await listAllDocs(ALUMNI, { where });
   return all.sort(compareForDisplay);
 }

@@ -21,6 +21,13 @@ app.use((_req, res, next) => {
   res.setHeader("Referrer-Policy", "same-origin");
   res.setHeader("X-Frame-Options", "DENY");
   if (isProduction) res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  const origin = _req.headers.origin;
+  if (origin && /^https:\/\/alumni-13428\.web\.app$/.test(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    if (_req.method === "OPTIONS") return res.sendStatus(204);
+  }
   next();
 });
 
@@ -32,13 +39,14 @@ app.use("/uploads", express.static(uploadsDir, { maxAge: "1h", index: false }));
 
 app.get("/api/health", route(async (_req, res) => {
   const bootstrap = await ensureOwnerAccount();
-  res.json({
+  const result = {
     ok: true,
     storage: usingFirestore ? "firestore" : "local-json",
     runtime: isCloudFunction ? "cloud-function" : "node",
     ownerAccount: bootstrap.username,
     maxBatch: config.maxBatch
-  });
+  };
+  res.json(result);
 }));
 
 // Keep the cached settings fresh so synchronous validators (the batch ceiling)

@@ -168,6 +168,24 @@ export async function listDocs(collection, options = {}) {
   return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 }
 
+export async function listAllDocs(collection, { where = [] } = {}) {
+  if (!firestore) return localQuery(collection, { where });
+  const PAGE = 5000;
+  let query = firestore.collection(collection);
+  where.forEach(([field, operator, value]) => { query = query.where(field, operator, value); });
+  const all = [];
+  let lastDoc = null;
+  for (;;) {
+    let page = query.limit(PAGE);
+    if (lastDoc) page = page.startAfter(lastDoc);
+    const snapshot = await page.get();
+    snapshot.docs.forEach((doc) => all.push({ id: doc.id, ...doc.data() }));
+    if (snapshot.docs.length < PAGE) break;
+    lastDoc = snapshot.docs[snapshot.docs.length - 1];
+  }
+  return all;
+}
+
 export async function countDocs(collection, where = []) {
   if (!firestore) return localQuery(collection, { where }).length;
   let query = firestore.collection(collection);

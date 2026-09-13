@@ -4,7 +4,7 @@ import app from "./server/index.js";
 export const api = onRequest(
   {
     region: "asia-southeast1",
-    memory: "1GiB",
+    memory: "2GiB",
     // A 10,000-row Excel import writes in bulk and needs more than 60 seconds.
     timeoutSeconds: 540,
     maxInstances: 20,

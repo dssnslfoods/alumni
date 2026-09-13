@@ -131,8 +131,9 @@ router.get("/report/submissions", requirePermission("alumni.read"), route(async 
   const byBatch = new Map();
   const byUser = new Map();
   filtered.forEach((r) => {
-    const stats = byBatch.get(r.batch) || { batch: r.batch, count: 0 };
+    const stats = byBatch.get(r.batch) || { batch: r.batch, count: 0, declined: 0 };
     stats.count += 1;
+    if (r.status === "declined") stats.declined += 1;
     byBatch.set(r.batch, stats);
 
     const info = enteredByInfo(r);
@@ -535,7 +536,10 @@ router.get("/import/template.xlsx", requirePermission("alumni.import"), route(as
   const rows = requested > 0 ? generateSampleRows(Math.min(requested, 20000), { maxBatch: effectiveMaxBatch() }) : [];
   const filename = rows.length ? `alumni-sample-${rows.length}.xlsx` : "alumni-import-template.xlsx";
   res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
-  res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").send(Buffer.from(await buildImportTemplate({ rows })));
+  res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  const workbook = buildImportTemplate({ rows });
+  await workbook.xlsx.write(res);
+  res.end();
 }));
 
 const DEMO_FILES = { "54-2535": "54-2535.xlsx", "15-2497": "15-2497.xlsx" };
@@ -655,11 +659,23 @@ router.get("/export.xlsx", requirePermission("alumni.export"), route(async (req,
   const includeOutreach = String(req.query.includeOutreach) === "true";
   if (includeOutreach && !can(req.user, "alumni.write")) throw forbidden("ไม่มีสิทธิ์ส่งออกข้อมูลติดต่อสำหรับติดตาม");
 
-  const records = await listAllAlumni({ batches, status: STATUSES.includes(String(req.query.status)) ? String(req.query.status) : undefined });
-  await audit(req, "alumni.export", { meta: { count: records.length, batches: batches.length ? batches : "all", includeOutreach } });
+  let records = await listAllAlumni({ batches, status: STATUSES.includes(String(req.query.status)) ? String(req.query.status) : undefined });
+
+  const filter = String(req.query.filter || "");
+  if (filter === "nameChanged") records = records.filter((r) => (r.nameHistory || []).length > 0);
+  else if (filter === "wasFaculty") records = records.filter((r) => r.wasFaculty);
+  else if (filter === "outstanding") records = records.filter((r) => r.outstandingAlumni);
+  else if (filter === "withPhoto") records = records.filter((r) => r.photo?.choice === "upload");
+  else if (filter === "withoutPhoto") records = records.filter((r) => r.status === "submitted" && r.photo?.choice !== "upload");
+  else if (filter === "withContacts") records = records.filter((r) => (r.contacts || []).length > 0);
+
+  await audit(req, "alumni.export", { meta: { count: records.length, batches: batches.length ? batches : "all", includeOutreach, filter: filter || "all" } });
   const suffix = batches.length === 1 ? `-batch-${batches[0]}` : batches.length ? `-${batches.length}batches` : "";
   res.setHeader("Content-Disposition", `attachment; filename=yearbook-2569${suffix}${includeOutreach ? "-followup" : ""}.xlsx`);
-  res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").send(Buffer.from(await buildExportWorkbook(records, { includeOutreach })));
+  res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  const workbook = buildExportWorkbook(records, { includeOutreach });
+  await workbook.xlsx.write(res);
+  res.end();
 }));
 
 router.get("/export-codes.xlsx", requirePermission("alumni.read"), route(async (req, res) => {
@@ -669,7 +685,10 @@ router.get("/export-codes.xlsx", requirePermission("alumni.read"), route(async (
   await audit(req, "alumni.exportCodes", { meta: { count: records.length, batches: batches.length ? batches : "all" } });
   const suffix = batches.length === 1 ? `-batch-${batches[0]}` : batches.length ? `-${batches.length}batches` : "";
   res.setHeader("Content-Disposition", `attachment; filename=verification-codes${suffix}.xlsx`);
-  res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").send(Buffer.from(await buildCodesWorkbook(records)));
+  res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  const workbook = buildCodesWorkbook(records);
+  await workbook.xlsx.write(res);
+  res.end();
 }));
 
 /* --------------------- handoff package for the design team ---------------- */
@@ -711,8 +730,10 @@ router.get("/handoff/data.xlsx", requirePermission("alumni.export"), route(async
   if (!rows.length) throw badRequest("ยังไม่มีข้อมูลที่ยืนยันหรืออนุมัติแล้วสำหรับส่งมอบ");
   await audit(req, "handoff.data", { meta: { count: rows.length, batches: batches.length ? batches : "all" } });
   res.setHeader("Content-Disposition", "attachment; filename=yearbook-2569-handoff.xlsx");
-  res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    .send(Buffer.from(await buildHandoffWorkbook(rows, { generatedBy: req.user.username, generatedAt: new Date().toISOString() })));
+  res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  const workbook = buildHandoffWorkbook(rows, { generatedBy: req.user.username, generatedAt: new Date().toISOString() });
+  await workbook.xlsx.write(res);
+  res.end();
 }));
 
 router.get("/handoff/data-merge.csv", requirePermission("alumni.export"), route(async (req, res) => {

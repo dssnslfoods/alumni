@@ -1,4 +1,5 @@
 const TOKEN_KEY = "alumni.session.token";
+const DIRECT_API_URL = import.meta.env.VITE_DIRECT_API_URL || "";
 
 export const session = {
   get token() {
@@ -24,7 +25,8 @@ export class ApiError extends Error {
  * Thin fetch wrapper. Attaches the bearer token, unwraps JSON and turns any
  * non-2xx response into an ApiError carrying the server's Thai message.
  */
-export async function api(path, { method = "GET", body, headers = {}, auth = true, raw = false } = {}) {
+export async function api(path, { method = "GET", body, headers = {}, auth = true, raw = false, direct = false } = {}) {
+  const url = direct && DIRECT_API_URL ? DIRECT_API_URL + path : path;
   const options = { method, headers: { ...headers } };
   if (auth && session.token) options.headers.Authorization = `Bearer ${session.token}`;
   if (body instanceof FormData) options.body = body;
@@ -33,9 +35,13 @@ export async function api(path, { method = "GET", body, headers = {}, auth = tru
     options.body = JSON.stringify(body);
   }
 
-  const response = await fetch(path, options);
+  const response = await fetch(url, options);
   if (raw) {
-    if (!response.ok) throw new ApiError(response.status, "ดาวน์โหลดไฟล์ไม่สำเร็จ");
+    if (!response.ok) {
+      let msg = "ดาวน์โหลดไฟล์ไม่สำเร็จ";
+      try { const err = await response.json(); if (err.message) msg = err.message; } catch {}
+      throw new ApiError(response.status, msg);
+    }
     return response.blob();
   }
 
@@ -54,7 +60,7 @@ export async function api(path, { method = "GET", body, headers = {}, auth = tru
 }
 
 export async function download(path, filename) {
-  const blob = await api(path, { raw: true });
+  const blob = await api(path, { raw: true, direct: true });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

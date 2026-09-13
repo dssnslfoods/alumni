@@ -135,15 +135,22 @@ export function Console({ user, onSignOut, onChangePassword }) {
   );
 }
 
-function useAsync(loader, deps = []) {
+function useAsync(loader, deps = [], { retries = 2 } = {}) {
   const [state, setState] = useState({ loading: true, data: null, error: "" });
   const run = useCallback(async () => {
     setState((current) => ({ ...current, loading: true, error: "" }));
-    try {
-      setState({ loading: false, data: await loader(), error: "" });
-    } catch (error) {
-      setState({ loading: false, data: null, error: error.message });
+    let lastError;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 1000 * attempt));
+        const data = await loader();
+        setState({ loading: false, data, error: "" });
+        return;
+      } catch (error) {
+        lastError = error;
+      }
     }
+    setState((current) => ({ loading: false, data: current.data, error: lastError.message }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
   useEffect(() => { run(); }, [run]);
@@ -154,8 +161,8 @@ function useAsync(loader, deps = []) {
 
 function Overview({ user }) {
   const { loading, data, error, reload } = useAsync(() => api("/api/admin/summary"));
-  if (loading) return <p className="console-loading">กำลังโหลดข้อมูล…</p>;
-  if (error) return <Alert>{error}</Alert>;
+  if (loading && !data) return <p className="console-loading">กำลังโหลดข้อมูล…</p>;
+  if (error && !data) return <Alert>{error} <button className="ghost" onClick={reload} style={{ marginLeft: 8 }}><RefreshCw /> ลองใหม่</button></Alert>;
 
   const scoped = user?.batchScope?.length ? user.batchScope : null;
   const batches = scoped ? data.byBatch.filter((item) => scoped.includes(item.batch)) : data.byBatch;
@@ -357,12 +364,14 @@ function SubmissionReport() {
               <h5 style={{ margin: "0 0 6px" }}>สรุปตามรุ่น</h5>
               <div className="table-wrap">
               <table className="data-table">
-                <thead><tr><th>รุ่น</th><th>จำนวนที่กรอกแล้ว</th></tr></thead>
+                <thead><tr><th>รุ่น</th><th>จำนวนที่กรอกแล้ว</th><th>ไม่ประสงค์ลง</th><th>อื่นๆ</th></tr></thead>
                 <tbody>
                   {data.byBatch.map((b) => (
                     <tr key={b.batch}>
                       <td>รุ่น {b.batch}</td>
                       <td>{thai(b.count)}</td>
+                      <td>{thai(b.declined || 0)}</td>
+                      <td>{thai(b.count - (b.declined || 0))}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -699,7 +708,10 @@ function AlumniTable({ user }) {
         <>
           <div className="pager">
             <span>
-              {total === 0 ? "ไม่พบข้อมูลตามเงื่อนไข" : <>แสดง <strong>{thai(from)}–{thai(to)}</strong> จากทั้งหมด <strong>{thai(total)}</strong> รายการ</>}
+              {total === 0 ? "ไม่พบข้อมูลตามเงื่อนไข" : <>แสดง <strong>{thai(from)}–{thai(to)}</strong> จากทั้งหมด <strong>{thai(total)}</strong> รายการ{(() => {
+                const withId = (data?.records || []).filter((r) => r.studentId).length;
+                return withId < total ? <> (มีเลขประจำตัวนิสิต <strong>{thai(withId)}</strong> คน)</> : null;
+              })()}</>}
             </span>
             <div className="pager-buttons">
               {total > 0 && (
@@ -1158,6 +1170,7 @@ function ImportExport({ canReset }) {
   const [busy, setBusy] = useState(false);
   const [exportBatch, setExportBatch] = useState("");
   const [exportStatus, setExportStatus] = useState("");
+  const [exportFilter, setExportFilter] = useState("");
   const [includeOutreach, setIncludeOutreach] = useState(false);
   const [replaceMode, setReplaceMode] = useState(false);
   const [progress, setProgress] = useState(null);
@@ -1172,15 +1185,19 @@ function ImportExport({ canReset }) {
 
   async function exportExcel() {
     setMessage("");
+    setProgress({ phase: "exporting", percent: 0 });
     const params = new URLSearchParams();
     if (exportBatch.trim()) params.set("batch", exportBatch.trim());
     if (exportStatus) params.set("status", exportStatus);
+    if (exportFilter) params.set("filter", exportFilter);
     if (includeOutreach) params.set("includeOutreach", "true");
     const query = params.toString();
     const suffix = exportBatch.trim() ? `-รุ่น${exportBatch.trim().replace(/[\s,;]+/g, "-")}` : "-ทุกรุ่น";
     try {
       await download(`/api/admin/export.xlsx${query ? `?${query}` : ""}`, `ข้อมูลนิสิตเก่า${suffix}.xlsx`);
+      setProgress(null);
     } catch (error) {
+      setProgress(null);
       setMessage(error.message);
     }
   }
@@ -1447,10 +1464,22 @@ function ImportExport({ canReset }) {
             {Object.entries(STATUS_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select>
         </label>
-        <button className="next compact-btn" onClick={exportExcel}>
+        <label className="field"><span>เงื่อนไขเพิ่มเติม</span>
+          <select value={exportFilter} onChange={(event) => setExportFilter(event.target.value)}>
+            <option value="">ทั้งหมด</option>
+            <option value="nameChanged">เปลี่ยนชื่อ-สกุล</option>
+            <option value="wasFaculty">เคยเป็นอาจารย์</option>
+            <option value="outstanding">ศิษย์เก่าดีเด่น</option>
+            <option value="withPhoto">มีรูปถ่าย</option>
+            <option value="withoutPhoto">ยืนยันแล้วแต่ไม่มีรูป</option>
+            <option value="withContacts">มีช่องทางติดต่อ</option>
+          </select>
+        </label>
+        <button className="next compact-btn" onClick={exportExcel} disabled={progress?.phase === "exporting"}>
           <Download /> ส่งออก Excel
         </button>
       </div>
+      {progress?.phase === "exporting" && <ProgressBar progress={progress} />}
       <label className="switch-row">
         <input type="checkbox" checked={includeOutreach} onChange={(event) => setIncludeOutreach(event.target.checked)} />
         <span>รวมอีเมลและเบอร์โทรที่ผู้ดูแลใช้ติดตามงาน — เป็นข้อมูลภายใน ห้ามส่งต่อให้ทีมออกแบบ</span>
@@ -1677,13 +1706,14 @@ const PROGRESS_LABELS = {
   writing: "กำลังบันทึกลงฐานข้อมูล",
   finishing: "กำลังบันทึกประวัติการนำเข้า…",
   done: "นำเข้าเสร็จสมบูรณ์",
-  failed: "การนำเข้าหยุดกลางคัน"
+  failed: "การนำเข้าหยุดกลางคัน",
+  exporting: "กำลังส่งออกข้อมูล…"
 };
 
 function ProgressBar({ progress }) {
   if (!progress) return null;
   const { phase, percent, done, total } = progress;
-  const indeterminate = phase === "reading" || phase === "finishing";
+  const indeterminate = phase === "reading" || phase === "finishing" || phase === "exporting";
 
   return (
     <div className={`progress-panel phase-${phase}`}>

@@ -457,7 +457,7 @@ const OUTREACH_COLUMNS = [
  * off by default so the file handed to the design team carries only what the
  * alumnus consented to publish.
  */
-export async function buildExportWorkbook(records, { includeOutreach = false } = {}) {
+export function buildExportWorkbook(records, { includeOutreach = false } = {}) {
   const columns = includeOutreach ? [...EXPORT_COLUMNS, ...OUTREACH_COLUMNS] : EXPORT_COLUMNS;
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "ระบบหนังสืออนุสรณ์ สภจ. 2569";
@@ -468,10 +468,10 @@ export async function buildExportWorkbook(records, { includeOutreach = false } =
   worksheet.views = [{ state: "frozen", ySplit: 1 }];
   worksheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: columns.length } };
   styleExportSheet(worksheet, records.length);
-  return workbook.xlsx.writeBuffer();
+  return workbook;
 }
 
-export async function buildCodesWorkbook(records) {
+export function buildCodesWorkbook(records) {
   const byBatch = new Map();
   records.forEach((r) => {
     const b = r.batch || 0;
@@ -504,7 +504,7 @@ export async function buildCodesWorkbook(records) {
     styleExportSheet(ws, rows.length);
   }
 
-  return workbook.xlsx.writeBuffer();
+  return workbook;
 }
 
 const STATUS_REVERSE = { "ยืนยันลงหนังสือ": "submitted", "ไม่ประสงค์ลงหนังสือ": "declined", "ยังไม่ตอบ": "pending" };
@@ -618,7 +618,7 @@ const HEADER_OPTIONAL = "FFE6ECE0";
  * instruction sheet that carries the example rows. Keeping the examples off the
  * data sheet means nobody can accidentally import "สมชาย ใจดี" as a real person.
  */
-export async function buildImportTemplate({ rows = [] } = {}) {
+export function buildImportTemplate({ rows = [] } = {}) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "ระบบหนังสืออนุสรณ์ สภจ. 2569";
   workbook.created = new Date();
@@ -656,7 +656,7 @@ export async function buildImportTemplate({ rows = [] } = {}) {
   sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: TEMPLATE_COLUMNS.length } };
 
   buildInstructionSheet(workbook);
-  return workbook.xlsx.writeBuffer();
+  return workbook;
 }
 
 function buildInstructionSheet(workbook) {
