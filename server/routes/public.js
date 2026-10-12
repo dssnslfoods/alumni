@@ -250,7 +250,7 @@ router.post("/draft", multipartBody({ maxFiles: 1 }), route(async (req, res) => 
   const uploaded = req.files?.photo;
   if (photoChoice === "placeholder") {
     if (record.photo?.storagePath) await deletePhoto(record.photo);
-    patch.photo = { choice: "placeholder", updatedAt: new Date().toISOString() };
+    patch.photo = { choice: "placeholder", updatedAt: new Date().toISOString(), storagePath: null, downloadUrl: null, bucket: null, width: null, height: null, bytes: null, print: null };
   } else if (uploaded) {
     const previous = record.photo;
     patch.photo = await storePhoto(
@@ -303,7 +303,7 @@ router.post("/submit", multipartBody({ maxFiles: 1 }), route(async (req, res) =>
   let photo = record.photo || null;
   if (photoChoice === "placeholder") {
     if (record.photo) await deletePhoto(record.photo);
-    photo = { choice: "placeholder", updatedAt: new Date().toISOString() };
+    photo = { choice: "placeholder", updatedAt: new Date().toISOString(), storagePath: null, downloadUrl: null, bucket: null, width: null, height: null, bytes: null, print: null };
   } else if (uploaded) {
     const previous = record.photo;
     photo = await storePhoto({ ...record, currentFirstName: firstName, currentLastName: lastName }, await normalizePhoto(uploaded));

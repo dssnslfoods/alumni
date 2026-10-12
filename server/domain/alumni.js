@@ -509,8 +509,8 @@ export async function alumniSummary() {
     .sort((left, right) => left.batch - right.batch)
     .map((item) => ({
       ...item,
-      responses: item.submitted,
-      rate: item.roster ? Math.round((item.submitted / item.roster) * 100) : 0
+      responses: item.submitted + item.declined,
+      rate: item.roster ? Math.round(((item.submitted + item.declined) / item.roster) * 100) : 0
     }));
 
   const answered = submitted + declined;
@@ -535,7 +535,7 @@ export async function alumniSummary() {
     lastSubmittedAt: recent[0]?.at || "",
     submittedLast7Days: days.slice(7).reduce((carry, item) => carry + item.count, 0),
     daily: days,
-    topBatches: [...batches].filter((item) => item.roster >= 5 && item.submitted > 0).sort((left, right) => right.rate - left.rate || right.submitted - left.submitted).slice(0, 5),
+    topBatches: [...batches].filter((item) => item.roster >= 5 && item.responses > 0).sort((left, right) => right.rate - left.rate || right.responses - left.responses).slice(0, 5),
     lowBatches: [...batches].filter((item) => item.roster >= 5).sort((left, right) => left.rate - right.rate || right.pending - left.pending).slice(0, 5),
     byBatch: batches
   };

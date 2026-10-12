@@ -385,7 +385,7 @@ router.patch("/alumni/:id", requirePermission("alumni.write"), multipartBody({ m
   const photoChoice = req.body?.photoChoice;
   if (photoChoice === "placeholder") {
     if (record.photo?.storagePath) await deletePhoto(record.photo);
-    patch.photo = { choice: "placeholder", updatedAt: new Date().toISOString() };
+    patch.photo = { choice: "placeholder", updatedAt: new Date().toISOString(), storagePath: null, downloadUrl: null, bucket: null, width: null, height: null, bytes: null, print: null };
   } else if (uploaded) {
     const previous = record.photo;
     const name = { currentFirstName: patch.currentFirstName || record.currentFirstName, currentLastName: patch.currentLastName || record.currentLastName };
@@ -698,14 +698,18 @@ async function handoffRowsFor(req) {
   const batches = requestedBatches(req);
   const all = await listAllAlumni({ batches });
   const records = all.filter((r) => r.approval?.approved);
-  return { batches, rows: buildHandoffRows(records) };
+  const { rows, newCodes } = buildHandoffRows(records, { allRecords: all });
+  if (newCodes.length) {
+    await bulkSet(config.collections.alumni, newCodes.map((c) => ({ id: c.id, data: { handoffCode: c.handoffCode } })), { merge: true });
+  }
+  return { batches, rows };
 }
 
 router.get("/handoff/summary", requirePermission("alumni.export"), route(async (req, res) => {
   const reqBatches = requestedBatches(req);
   const all = await listAllAlumni({ batches: reqBatches });
   const approved = all.filter((r) => r.approval?.approved);
-  const rows = buildHandoffRows(approved);
+  const { rows } = buildHandoffRows(approved, { allRecords: all });
   const summary = handoffSummary(rows);
 
   const batchStats = new Map();
@@ -765,7 +769,10 @@ router.get("/handoff/photos.zip", requirePermission("alumni.export"), route(asyn
 
   const all = await listAllAlumni({ batches: [batch] });
   const approved = all.filter((r) => r.approval?.approved);
-  const rows = buildHandoffRows(approved);
+  const { rows, newCodes } = buildHandoffRows(approved, { allRecords: all });
+  if (newCodes.length) {
+    await bulkSet(config.collections.alumni, newCodes.map((c) => ({ id: c.id, data: { handoffCode: c.handoffCode } })), { merge: true });
+  }
   const withPhotos = rows.filter((row) => row.hasPhoto);
   if (!withPhotos.length) throw badRequest(`รุ่น ${batch} ยังไม่มีรูปถ่ายที่ส่งเข้ามา`);
 

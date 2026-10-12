@@ -1,6 +1,6 @@
 import { ZipArchive } from "archiver";
 import ExcelJS from "exceljs";
-import { compareForDisplay, normalizeText } from "./alumni.js";
+import { normalizeText } from "./alumni.js";
 import { openPhotoStream } from "./photos.js";
 
 /**
@@ -27,18 +27,54 @@ export function photoFolder(batch) {
 /**
  * Assign layout order and the canonical photo filename.
  * Sequence restarts per batch, so รุ่น 45 numbering is independent of รุ่น 46.
+ *
+ * Codes are stable: records that already carry a `handoffCode` keep it.
+ * New records receive the next available number so existing codes never shift.
+ * Pass `allRecords` (the full batch, including unapproved) so the max-sequence
+ * scan sees codes assigned to records that were later unapproved.
+ *
+ * Returns `{ rows, newCodes }` — callers that persist codes should write
+ * `newCodes` back to the database.
  */
-export function buildHandoffRows(records) {
-  const sorted = [...records].sort(compareForDisplay);
-  const perBatch = new Map();
+export function buildHandoffRows(records, { allRecords } = {}) {
+  const maxSeq = new Map();
+  (allRecords || records).forEach((record) => {
+    if (record.handoffCode) {
+      const match = record.handoffCode.match(/-(\d+)$/);
+      if (match) {
+        const seq = parseInt(match[1], 10);
+        maxSeq.set(record.batch, Math.max(maxSeq.get(record.batch) || 0, seq));
+      }
+    }
+  });
 
-  return sorted.map((record) => {
-    const sequence = (perBatch.get(record.batch) || 0) + 1;
-    perBatch.set(record.batch, sequence);
+  const thaiCollator = new Intl.Collator("th-TH");
+  const sorted = [...records].sort((a, b) => {
+    const aFirst = a.currentFirstName || a.legalFirstName;
+    const bFirst = b.currentFirstName || b.legalFirstName;
+    return thaiCollator.compare(aFirst, bFirst)
+      || thaiCollator.compare(a.currentLastName || a.legalLastName, b.currentLastName || b.legalLastName)
+      || a.batch - b.batch
+      || String(a.id).localeCompare(String(b.id));
+  });
+  const newCodes = [];
+
+  const rows = sorted.map((record) => {
+    let code = record.handoffCode;
+    let sequence;
+
+    if (code) {
+      const match = code.match(/-(\d+)$/);
+      sequence = match ? parseInt(match[1], 10) : 0;
+    } else {
+      sequence = (maxSeq.get(record.batch) || 0) + 1;
+      maxSeq.set(record.batch, sequence);
+      code = `${String(record.batch).padStart(2, "0")}-${String(sequence).padStart(4, "0")}`;
+      newCodes.push({ id: record.id, handoffCode: code });
+    }
 
     const firstName = record.currentFirstName || record.legalFirstName;
     const lastName = record.currentLastName || record.legalLastName;
-    const code = `${String(record.batch).padStart(2, "0")}-${String(sequence).padStart(4, "0")}`;
     const hasPhoto = record.photo?.choice === "upload" && Boolean(record.photo?.storagePath);
 
     return {
@@ -49,11 +85,11 @@ export function buildHandoffRows(records) {
       lastName,
       hasPhoto,
       lowResolution: hasPhoto && record.photo?.print?.quality === "low",
-      // Relative to the package root, so unzipping several batches side by side
-      // keeps every path in the data file valid.
       photoPath: hasPhoto ? `photos/${photoFolder(record.batch)}/${code}-${fileSafe(firstName)}-${fileSafe(lastName)}.jpg` : ""
     };
   });
+
+  return { rows, newCodes };
 }
 
 export function handoffSummary(rows) {

@@ -491,7 +491,7 @@ function RankList({ items, tone }) {
           <span>รุ่น {item.batch}</span>
           <div className="mini-track"><div className="mini-fill" style={{ width: `${item.rate}%` }} /></div>
           <strong>{item.rate}%</strong>
-          <small>{item.submitted}/{item.roster}</small>
+          <small>{item.responses}/{item.roster}</small>
         </li>
       ))}
     </ol>
