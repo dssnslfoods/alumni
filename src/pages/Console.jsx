@@ -756,7 +756,7 @@ function AlumniTable({ user }) {
                       <span className={`status-chip status-${record.status}`}>{STATUS_LABELS[record.status]}</span>
                     )}
                   </td>
-                  <td>{record.photo?.downloadUrl ? <a href={record.photo.downloadUrl} target="_blank" rel="noreferrer">ดูรูป</a> : record.photo?.choice === "placeholder" ? "ใช้ภาพคณะ" : "—"}</td>
+                  <td>{record.photo?.choice === "placeholder" ? "ใช้ภาพคณะ" : record.photo?.downloadUrl ? <a href={record.photo.downloadUrl} target="_blank" rel="noreferrer">ดูรูป</a> : "—"}</td>
                   <td className="contact-cell">
                     {(() => {
                       const contacts = record.contacts || [];
