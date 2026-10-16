@@ -155,6 +155,7 @@ function styleSheet(sheet, rowCount, { headerFill = HEADER_FILL, headerFont = HE
 
 const LAYOUT_COLUMNS = [
   ["ลำดับ", (row) => row.code, 12],
+  ["เลขประจำตัวนิสิต", (row) => row.record.reportedStudentId || row.record.studentId || "", 18],
   ["รุ่น", (row) => row.record.batch, 8],
   ["คำนำหน้า", (row) => row.record.title || "", 12],
   ["ชื่อ", (row) => row.firstName, 18],
